@@ -490,6 +490,57 @@ def cmd_jobs(config, tracker, args):
     return 0
 
 
+def cmd_today(config, tracker, args):
+    """What the agent did on one day: new listings found, jobs scored, resumes tailored."""
+    from datetime import date
+
+    from agent.filters import adjusted_score, is_preferred_location
+
+    day = args.date or date.today().isoformat()
+    search = config["search"]
+    preferred = search.get("preferred_locations", [])
+    rows = tracker.list_all()
+
+    def line(r, extra=""):
+        star = "★" if is_preferred_location(r["location"], preferred) else " "
+        fit = f"fit {r['fit_score']:<3}" if r["fit_score"] is not None else "not scored"
+        return (f"  #{r['id']:<5}{star} {fit:10} {r['status']:9} {r['company'][:24]:24} "
+                f"{r['role'][:44]}{extra}")
+
+    found = [r for r in rows if r["date_added"] == day and r["source"]]
+    scored = [r for r in rows if r["scored_at"] == day]
+    tailored = [r for r in rows if r["tailor_report"]
+                and json.loads(r["tailor_report"]).get("date") == day]
+    applied = [r for r in rows if r["date_applied"] == day and r["status"] != "found"]
+
+    print(f"=== {day} ===")
+    print(f"\nNew listings found ({len(found)}):")
+    for r in found:
+        note = f"  ({r['notes']})" if r["status"] == "skipped" and r["notes"] else ""
+        print(line(r, note))
+    if not found:
+        print("  none")
+    print(f"\nScored ({len(scored)}), best first:")
+    for r in sorted(scored, key=lambda r: -adjusted_score(r["fit_score"], r["location"], search)):
+        print(line(r))
+    if not scored:
+        print("  none")
+    print(f"\nResumes tailored ({len(tailored)}):")
+    for r in tailored:
+        print(line(r))
+    if not tailored:
+        print("  none")
+    print(f"\nApplied ({len(applied)}):")
+    for r in applied:
+        print(line(r))
+    if not applied:
+        print("  none")
+    print("\nStatus: found = waiting · queued = needs your review · approved = ready to apply · "
+          "skipped = below your minimum or filtered out")
+    print("Details for one job: python main.py show <#>")
+    return 0
+
+
 def cmd_show(tracker, args):
     row = tracker.get(args.id)
     if not row:
@@ -565,6 +616,9 @@ def build_parser():
 
     sub.add_parser("jobs", help="Show scored matches, best first")
 
+    p = sub.add_parser("today", help="What the agent found, scored, and tailored today")
+    p.add_argument("--date", help="Another day instead, e.g. 2026-11-09")
+
     p = sub.add_parser("tailor", help="Tailor your resume for one job (uses API credits)")
     p.add_argument("id", type=int, help="The # shown by 'jobs'")
 
@@ -618,10 +672,10 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
-        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule", "go"):
+        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule", "go", "today"):
             handler = {"jobs": cmd_jobs, "tailor": cmd_tailor, "prepare": cmd_prepare,
                        "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply,
-                       "schedule": cmd_schedule, "go": cmd_go}[args.command]
+                       "schedule": cmd_schedule, "go": cmd_go, "today": cmd_today}[args.command]
             return handler(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
                     "status": cmd_status, "show": cmd_show}

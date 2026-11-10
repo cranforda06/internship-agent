@@ -32,6 +32,7 @@ asleep or off). `--off` turns it off.
 
 | Command | What it does |
 |---|---|
+| `python main.py today` | What the agent found, scored, and tailored today |
 | `python main.py queue` | Jobs waiting for your review |
 | `python main.py jobs` | Best matches (★ Richmond/DC, ⚠ applied there before) |
 | `python main.py show 42` | Everything about job #42 |
