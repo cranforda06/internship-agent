@@ -178,7 +178,7 @@ tailoring:
 
 daily:
   # How many tailored applications "prepare" gets ready for you each day.
-  queue_size: 5
+  queue_size: 15
   # Most jobs "prepare" will score in one run while looking for good matches.
   max_to_score: 40
 
