@@ -157,7 +157,9 @@ def parse_date(value):
 class Tracker:
     def __init__(self, db_path):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(db_path)
+        # check_same_thread=False lets the review page's web server use this
+        # connection. That server handles one request at a time, so it's safe.
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         # Lets us read columns by name: row["company"] instead of row[1].
         self.conn.row_factory = sqlite3.Row
         self._create_table()

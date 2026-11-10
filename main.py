@@ -17,6 +17,8 @@ Examples:
     python main.py prepare              # daily: find, score, tailor your top 5
     python main.py queue                # tailored jobs waiting for your review
     python main.py tailor 42            # tailor your resume for one job
+    python main.py review               # approve/edit/skip on a page in your browser
+    python main.py apply                # fill in approved applications (you click Submit)
 """
 
 import argparse
@@ -234,7 +236,7 @@ def cmd_prepare(config, tracker, args):
     need = size - queued
     if need <= 0:
         print(f"Your queue already has {queued} job(s) waiting for review. "
-              f"Review those first (Phase 4 adds the review page).")
+              f"Review those first: python main.py review")
         return 0
 
     if not args.no_find:
@@ -263,6 +265,44 @@ def cmd_prepare(config, tracker, args):
         return 1
     print(f"{done} new job(s) tailored. Your queue: {queued + done} waiting for review.")
     print("See them: python main.py queue")
+    return 0
+
+
+def cmd_review(config, tracker, args):
+    import webbrowser
+
+    from agent.review import create_app
+
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Review page: {url}")
+    print("It opens in your browser. Press Ctrl+C here when you're done.")
+    webbrowser.open(url)
+    # One request at a time, because the tracker's database connection can
+    # only be used from one thread.
+    create_app(config, tracker).run(host="127.0.0.1", port=args.port, threaded=False)
+    return 0
+
+
+def cmd_apply(config, tracker, args):
+    from agent.apply.runner import apply_to_approved
+    from agent.profile import create_template, load_profile
+
+    profile_path = config["profile_path"]
+    setup = _setup_claude(config)
+    if not setup:
+        return 1
+    claude, resume_text = setup
+    if not profile_path.exists():
+        create_template(profile_path, resume_text)
+        print(f"Created {profile_path}. Fill in the blank answers there, then run apply again.")
+        return 0
+    profile = load_profile(profile_path)
+    print("Opening a browser. For each approved job the agent fills in what it can,")
+    print("then waits for YOU to check everything and click Submit.")
+    counts = _run_with_api(claude, lambda: apply_to_approved(config, tracker, claude, profile, resume_text))
+    if counts:
+        print(f"Submitted: {counts['submitted']}   Saved for later: {counts['later']}   "
+              f"Skipped: {counts['skipped']}")
     return 0
 
 
@@ -395,6 +435,11 @@ def build_parser():
 
     sub.add_parser("queue", help="Show tailored jobs waiting for your review")
 
+    p = sub.add_parser("review", help="Open the review page in your browser")
+    p.add_argument("--port", type=int, default=5050)
+
+    sub.add_parser("apply", help="Fill in applications for approved jobs (you click Submit)")
+
     p = sub.add_parser("show", help="Show full details for one job")
     p.add_argument("id", type=int)
 
@@ -419,9 +464,9 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
-        if args.command in ("jobs", "tailor", "prepare", "queue"):
-            handler = {"jobs": cmd_jobs, "tailor": cmd_tailor,
-                       "prepare": cmd_prepare, "queue": cmd_queue}[args.command]
+        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply"):
+            handler = {"jobs": cmd_jobs, "tailor": cmd_tailor, "prepare": cmd_prepare,
+                       "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply}[args.command]
             return handler(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
                     "status": cmd_status, "show": cmd_show}

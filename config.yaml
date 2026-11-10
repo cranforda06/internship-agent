@@ -175,3 +175,10 @@ daily:
 
 # Where tailored resumes are saved (one folder per job).
 output_dir: output/resumes
+
+# --- Phase 4: applying (you always click Submit yourself) --------------------
+# Your standard form answers. Blank answers are left for you on each form.
+profile_path: data/profile.yaml
+apply:
+  # Matches form questions to your profile answers (~$0.02 per form).
+  answer_model: claude-opus-5-5
