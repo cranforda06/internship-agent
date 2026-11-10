@@ -19,12 +19,13 @@ import yaml
 class Question:
     key: str                  # the field's id/name on the page
     label: str                # the question text
-    kind: str                 # text, textarea, select, combobox, radio, checkbox, file
+    kind: str                 # text, textarea, select, combobox, dropdown, prompt, radio, checkbox, file
     options: list = field(default_factory=list)
     required: bool = False
 
 
-CHOICE_KINDS = {"select", "combobox", "radio", "checkbox"}
+# "dropdown" and "prompt" are Workday's dropdowns and type-to-search boxes.
+CHOICE_KINDS = {"select", "combobox", "dropdown", "prompt", "radio", "checkbox"}
 
 # Questions the agent never answers for you, even if it could.
 ALWAYS_YOURS = re.compile(
@@ -71,7 +72,9 @@ def match_sensitive(question, profile):
     text matching (no AI). Returns the option, or None to leave it for you."""
     key = sensitive_key(question)
     answer = profile.get(key, "").strip() if key else ""
-    if not answer or question.kind not in CHOICE_KINDS or not question.options:
+    # Checkboxes (like Workday's disability form) are always left for you: one
+    # wrong tick on a form like that is too easy to miss.
+    if not answer or question.kind not in CHOICE_KINDS - {"checkbox"} or not question.options:
         return None
     wanted = answer.lower()
     # 1. Exact match, ignoring case.
@@ -136,13 +139,15 @@ def validate(question, answer, allowed_words):
     answer = (answer or "").strip()
     if not answer or ALWAYS_YOURS.search(question.label) or question.kind == "file":
         return None
-    if question.kind in CHOICE_KINDS:
+    if question.kind in CHOICE_KINDS and question.options:
         # Must be one of the options (ignoring upper/lower case).
         for option in question.options:
             if option.strip().lower() == answer.lower():
                 return option
         return None
-    if question.kind in ("text", "textarea"):
+    if question.kind in ("text", "textarea") or question.kind in CHOICE_KINDS:
+        # Typed answers, and search boxes whose choices we can't see ahead of
+        # time (the filler then has to find an option matching this exactly).
         # Every word must come from the profile or resume. Stops inventions.
         return answer if _words(answer) <= allowed_words else None
     return None

@@ -15,7 +15,7 @@ into (like a company's Workday) stay logged in next time.
 
 import json
 
-from agent.apply import greenhouse, lever
+from agent.apply import greenhouse, lever, workday
 from agent.apply.answers import plan_answers
 from agent.config import PROJECT_ROOT
 
@@ -27,6 +27,8 @@ def site_for(url):
         return "greenhouse"
     if lever.can_handle(url):
         return "lever"
+    if "myworkdayjobs.com" in (url or ""):
+        return "workday"
     return "other"
 
 
@@ -91,9 +93,12 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
                                            profile, resume_text, questions)
                     left = lever.fill(page, questions, answers, pdf, log)
                     _print_left(left, True)
+                elif site == "workday":
+                    workday.assist(page, row["link"], claude, settings.get("answer_model", "claude-opus-5-5"),
+                                   profile, resume_text, pdf, log)
                 else:
                     page.goto(row["link"], wait_until="domcontentloaded", timeout=60000)
-                    print("  This site isn't auto-filled yet (e.g. Workday). The posting is open in the")
+                    print("  This site isn't auto-filled yet. The posting is open in the")
                     print("  browser: apply there, and upload the resume file shown above.")
             except Exception as e:
                 print(f"  ! Couldn't fill this form automatically ({e.__class__.__name__}).")

@@ -229,3 +229,67 @@ def test_race_question_mentioning_hispanic_counts_as_race():
     from agent.apply.answers import sensitive_key
     assert sensitive_key(Question("q", "Race/Ethnicity (including Hispanic or Latino)", "combobox")) == "race_ethnicity"
     assert sensitive_key(Question("q", "Are you Hispanic or Latino?", "combobox")) == "hispanic_or_latino"
+
+
+# --- Workday (fake page copying Workday's structure) ----------------------------
+
+FAKE_WORKDAY = """<html><body>
+<div data-automation-id="formField-firstName"><label for="fn">First Name*</label><input id="fn" type="text"></div>
+<div data-automation-id="formField-email"><label for="em">Email Address*</label><input id="em" type="text" value="already@example.com"></div>
+<div data-automation-id="formField-source"><label>How Did You Hear About Us?*</label>
+  <button aria-haspopup="listbox" data-options='["Company Website","LinkedIn","Job Board"]'>Select One</button></div>
+<fieldset data-automation-id="formField-previousWorker"><legend>Have you previously worked here?*</legend>
+  <input type="radio" name="prev" id="r1"><label for="r1">Yes</label>
+  <input type="radio" name="prev" id="r2"><label for="r2">No</label></fieldset>
+<div data-automation-id="formField-gender"><label>Gender</label>
+  <button aria-haspopup="listbox" data-options='["Male","Female","I do not wish to answer"]'>Select One</button></div>
+<div data-automation-id="formField-terms"><input type="checkbox" id="tc"><label for="tc">I agree to the Terms and Conditions*</label></div>
+<div data-automation-id="formField-resume"><label>Upload a file (Resume/CV)</label><input type="file" id="file" style="display:none"></div>
+<button data-automation-id="bottom-navigation-next-button" onclick="document.title='NEXT CLICKED'">Next</button>
+<div id="popup"></div>
+<script>
+  // Mimics Workday dropdowns: choices appear only after clicking; Escape closes.
+  const popup = document.getElementById('popup');
+  document.querySelectorAll('button[aria-haspopup]').forEach(btn => btn.addEventListener('click', () => {
+    popup.innerHTML = '<ul role="listbox">' + JSON.parse(btn.dataset.options)
+      .map(o => `<li role="option">${o}</li>`).join('') + '</ul>';
+    popup.querySelectorAll('[role=option]').forEach(li => li.addEventListener('click', () => {
+      btn.innerText = li.innerText; popup.innerHTML = '';
+    }));
+  }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') popup.innerHTML = ''; });
+</script></body></html>"""
+
+
+def test_workday_read_and_fill(tmp_path, browser_page):
+    from agent.apply import workday
+    form = tmp_path / "wd.html"
+    form.write_text(FAKE_WORKDAY)
+    browser_page.goto(form.as_uri())
+
+    questions = workday.read_page(browser_page)
+    by_label = {q.label: q for q in questions}
+    assert "Email Address" not in by_label                       # already filled: left alone
+    assert by_label["How Did You Hear About Us?"].options == ["Company Website", "LinkedIn", "Job Board"]
+    assert by_label["Have you previously worked here?"].options == ["Yes", "No"]
+    assert by_label["First Name"].required is True
+
+    profile = dict(PROFILE, how_did_you_hear="Company Website", gender="Decline to self-identify")
+    claude = make_claude([("end_turn", {"answers": [
+        {"key": by_label["First Name"].key, "leave_for_student": False, "answer": "Pat"},
+        {"key": by_label["How Did You Hear About Us?"].key, "leave_for_student": False, "answer": "Company Website"},
+        {"key": by_label["Have you previously worked here?"].key, "leave_for_student": True, "answer": ""},
+    ]})])
+    answers = plan_answers(claude, "claude-opus-5-5", profile, "", questions)
+    pdf = tmp_path / "Pat_Doe_Resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    left = workday.fill_page(browser_page, questions, answers, str(pdf), log=lambda m: None)
+
+    assert browser_page.input_value("#fn") == "Pat"
+    assert browser_page.input_value("#em") == "already@example.com"           # not overwritten
+    buttons = browser_page.locator("button[aria-haspopup]").all_inner_texts()
+    assert buttons == ["Company Website", "I do not wish to answer"]          # gender matched locally
+    assert browser_page.evaluate("document.getElementById('file').files.length") == 1
+    assert not browser_page.is_checked("#tc")                                  # terms: always yours
+    assert browser_page.title() != "NEXT CLICKED"                              # never clicks Next
+    assert {q.label for q in left} == {"Have you previously worked here?", "I agree to the Terms and Conditions"}
