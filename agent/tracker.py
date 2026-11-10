@@ -46,6 +46,20 @@ COMPANY_SUFFIXES = {"inc", "llc", "ltd", "corp", "corporation", "co", "company",
 TRACKING_PARAMS = {"gh_src", "lever-source", "lever-origin", "source", "src", "ref", "referrer"}
 
 
+EXTRA_COLUMNS = {
+    "location": "TEXT",
+    "source": "TEXT",         # where the agent found it: simplify, greenhouse, lever
+    "description": "TEXT",    # the job description, used for scoring and tailoring
+    "posted": "TEXT",         # date the job was posted
+    "fit_score": "INTEGER",   # 0-100, from Claude
+    "fit_summary": "TEXT",    # Claude's reasons, stored as JSON text
+    "scored_at": "TEXT",
+}
+
+# Statuses that mean you actually applied somewhere (vs. the agent just finding it).
+APPLIED_STATUSES = {"applied", "assessment", "interview", "offer", "rejected", "closed"}
+
+
 class DuplicateError(Exception):
     """Raised when you try to add a job that's already in the tracker."""
 
@@ -150,6 +164,12 @@ class Tracker:
                 UNIQUE (company_key, role_key)
             )
         """)
+        # Columns added in Phase 2. Older databases get them added here, so
+        # your existing data is kept.
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(applications)")}
+        for column, kind in EXTRA_COLUMNS.items():
+            if column not in existing:
+                self.conn.execute(f"ALTER TABLE applications ADD COLUMN {column} {kind}")
         self.conn.commit()
 
     def _refresh_keys(self):
@@ -191,8 +211,12 @@ class Tracker:
             (normalize_company(company), normalize_role(role)),
         ).fetchone()
 
-    def add(self, company, role, link=None, status="applied", date_applied=None, notes=None):
-        """Save a new job. Raises DuplicateError if it's already tracked."""
+    def add(self, company, role, link=None, status="applied", date_applied=None, notes=None,
+            **details):
+        """Save a new job. Raises DuplicateError if it's already tracked.
+
+        `details` can hold any of the EXTRA_COLUMNS, e.g. location="Richmond, VA".
+        """
         company, role = company.strip(), role.strip()
         if not company or not role:
             raise ValueError("Company and role are both required.")
@@ -217,7 +241,67 @@ class Tracker:
         except sqlite3.IntegrityError:
             # The database's UNIQUE rule caught a duplicate.
             raise DuplicateError(self.find_existing(company, role, link))
+        if details:
+            self.update_details(cursor.lastrowid, **details)
         return cursor.lastrowid
+
+    def update_details(self, app_id, **details):
+        """Fill in extra columns, e.g. update_details(5, fit_score=80)."""
+        unknown = set(details) - set(EXTRA_COLUMNS)
+        if unknown:
+            raise ValueError(f"Unknown column(s): {', '.join(sorted(unknown))}")
+        # Column names come from EXTRA_COLUMNS (checked above), never from
+        # user input, so building the SQL text this way is safe.
+        assignments = ", ".join(f"{column} = ?" for column in details)
+        with self.conn:
+            self.conn.execute(
+                f"UPDATE applications SET {assignments} WHERE id = ?",
+                (*details.values(), app_id),
+            )
+
+    def get(self, app_id):
+        return self.conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+
+    def unscored(self, limit):
+        """Found jobs that haven't been scored yet, newest postings first."""
+        return self.conn.execute(
+            "SELECT * FROM applications WHERE status = 'found' AND fit_score IS NULL "
+            "ORDER BY posted DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+    def missing_descriptions(self):
+        """Found, unscored jobs whose description we haven't tried to get yet.
+
+        description is NULL = not tried yet; "" = tried, not available.
+        """
+        return self.conn.execute(
+            "SELECT * FROM applications WHERE status = 'found' AND fit_score IS NULL "
+            "AND description IS NULL ORDER BY id"
+        ).fetchall()
+
+    def count_unscored(self):
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM applications WHERE status = 'found' AND fit_score IS NULL"
+        ).fetchone()[0]
+
+    def scored_matches(self):
+        """Found jobs that passed scoring, best score first."""
+        return self.conn.execute(
+            "SELECT * FROM applications WHERE status = 'found' AND fit_score IS NOT NULL "
+            "ORDER BY fit_score DESC, id"
+        ).fetchall()
+
+    def applied_at_company(self, company, exclude_id=None):
+        """Jobs you've applied to at this company (any role).
+
+        Used to warn you, e.g. if a past application's role was unknown.
+        """
+        placeholders = ", ".join("?" for _ in APPLIED_STATUSES)
+        return self.conn.execute(
+            f"SELECT * FROM applications WHERE company_key = ? AND id != ? "
+            f"AND status IN ({placeholders})",
+            (normalize_company(company), exclude_id or -1, *sorted(APPLIED_STATUSES)),
+        ).fetchall()
 
     def update_status(self, app_id, status):
         """Change a job's status, e.g. from 'applied' to 'interview'."""

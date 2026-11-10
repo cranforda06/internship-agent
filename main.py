@@ -3,17 +3,24 @@
 Examples:
     python main.py add                  # add an application (it asks you questions)
     python main.py import data/past_applications.csv
-    python main.py list                 # show everything in the tracker
-    python main.py list --status applied
+    python main.py list                 # show your applications
+    python main.py list --all           # also show jobs the agent found/skipped
     python main.py status 3 interview   # change job #3's status
     python main.py resume               # check that your resume loads
+
+    python main.py find                 # look for new internships (free)
+    python main.py score                # score found jobs with Claude (costs credits)
+    python main.py score --limit 25
+    python main.py jobs                 # show the best matches
+    python main.py show 42              # full details for job #42
 """
 
 import argparse
+import json
 import sys
 from datetime import date
 
-from agent.config import load_config
+from agent.config import get_api_key, load_config
 from agent.resume import ResumeError, load_resume, split_sections
 from agent.tracker import STATUSES, DuplicateError, Tracker, parse_date
 
@@ -67,6 +74,9 @@ def cmd_import(tracker, args):
 
 def cmd_list(tracker, args):
     rows = tracker.list_all(status=args.status)
+    if not args.status and not args.all:
+        # Hide what the agent found/skipped; those are shown by "jobs".
+        rows = [r for r in rows if r["status"] not in ("found", "skipped")]
     if not rows:
         print("No applications yet.")
         return 0
@@ -87,6 +97,125 @@ def cmd_status(tracker, args):
         print(e)
         return 1
     print(f"#{args.id} is now '{args.new_status}'.")
+    return 0
+
+
+def cmd_find(config, tracker, args):
+    from agent.finder import fill_descriptions, find_new_jobs  # imported here so other commands start fast
+
+    results = find_new_jobs(config, tracker)
+    print("\nResults:")
+    for label, count in results.most_common():
+        print(f"  {count:6}  {label}")
+
+    descriptions = fill_descriptions(tracker)
+    if descriptions:
+        print("\nJob descriptions:")
+        for label, count in sorted(descriptions.items()):
+            print(f"  {count:6}  {label}")
+    waiting = tracker.count_unscored()
+    print(f"\n{waiting} job(s) are waiting to be scored. Next: python main.py score")
+    return 0
+
+
+def cmd_score(config, tracker, args):
+    import anthropic
+
+    from agent.scorer import Scorer, score_found_jobs
+
+    try:
+        api_key = get_api_key()
+        resume_text = load_resume(config["resume_path"])
+    except (RuntimeError, ResumeError) as e:
+        print(e)
+        return 1
+
+    settings = config["scoring"]
+    limit = args.limit or settings["default_limit"]
+    waiting = tracker.count_unscored()
+    if waiting == 0:
+        print("Nothing to score. Run 'python main.py find' first.")
+        return 0
+    print(f"Scoring {min(limit, waiting)} of {waiting} waiting job(s) with {settings['model']}...")
+
+    scorer = Scorer(api_key, resume_text, settings["model"], settings.get("effort", "low"))
+    try:
+        counts = score_found_jobs(config, tracker, scorer, limit)
+    except anthropic.AuthenticationError:
+        print("Your API key was rejected. Check the key in your .env file.")
+        return 1
+    except anthropic.APIStatusError as e:
+        print(f"The API returned an error ({e.status_code}): {e.message}")
+        return 1
+    except anthropic.APIConnectionError:
+        print("Couldn't reach the Anthropic API. Check your internet connection.")
+        return 1
+    finally:
+        cost = scorer.cost()
+        if cost is not None:
+            print(f"\nCost of this run: ${cost:.3f} "
+                  f"({scorer.input_tokens:,} input + {scorer.output_tokens:,} output tokens)")
+
+    print(f"Good matches: {counts['good']}   Below your minimum "
+          f"({settings['min_fit_score']}), skipped: {counts['skipped']}   Errors: {counts['errors']}")
+    left = tracker.count_unscored()
+    if left:
+        print(f"{left} still waiting. Run score again to continue.")
+    print("See your matches: python main.py jobs")
+    return 0
+
+
+def _warning_for(tracker, row):
+    """Warn if you've already applied somewhere at this company."""
+    past = tracker.applied_at_company(row["company"], exclude_id=row["id"])
+    if not past:
+        return ""
+    roles = "; ".join(f"{p['role']} ({p['status']})" for p in past[:2])
+    return f"⚠ already applied at {row['company']}: {roles}"
+
+
+def cmd_jobs(tracker, args):
+    rows = tracker.scored_matches()
+    if not rows:
+        print("No scored matches yet. Run 'python main.py find' then 'python main.py score'.")
+        return 0
+    print(f"{'#':<5} {'Fit':<4} {'Company':<24} {'Role':<44} {'Location':<20}")
+    print("-" * 100)
+    for r in rows:
+        print(f"{r['id']:<5} {r['fit_score']:<4} {r['company'][:24]:<24} {r['role'][:44]:<44} "
+              f"{(r['location'] or '')[:20]:<20}")
+        warning = _warning_for(tracker, r)
+        if warning:
+            print(f"      {warning}")
+    print(f"\n{len(rows)} match(es). Details: python main.py show <#>")
+    return 0
+
+
+def cmd_show(tracker, args):
+    row = tracker.get(args.id)
+    if not row:
+        print(f"No job with id {args.id}.")
+        return 1
+    print(f"{row['company']} - {row['role']}")
+    print(f"Status: {row['status']}   Location: {row['location'] or 'n/a'}   "
+          f"Posted: {row['posted'] or 'n/a'}")
+    print(f"Link: {row['link'] or 'n/a'}")
+    warning = _warning_for(tracker, row)
+    if warning:
+        print(warning)
+    if row["fit_summary"]:
+        fit = json.loads(row["fit_summary"])
+        print(f"\nFit score: {fit['score']}/100"
+              + ("" if fit.get("had_description") else "  (title only, no description available)"))
+        print(fit["summary"])
+        print("\nStrengths:")
+        for s in fit["matching_strengths"]:
+            print(f"  + {s}")
+        print("Gaps:")
+        for g in fit["gaps"]:
+            print(f"  - {g}")
+    if row["notes"]:
+        print(f"\nNotes: {row['notes']}")
     return 0
 
 
@@ -116,8 +245,19 @@ def build_parser():
     p = sub.add_parser("import", help="Import past applications from a CSV file")
     p.add_argument("csv_path")
 
-    p = sub.add_parser("list", help="Show everything in the tracker")
+    p = sub.add_parser("list", help="Show your applications")
     p.add_argument("--status", choices=STATUSES, help="Only show this status")
+    p.add_argument("--all", action="store_true", help="Include found/skipped jobs too")
+
+    sub.add_parser("find", help="Look for new internships (free)")
+
+    p = sub.add_parser("score", help="Score found jobs with Claude (uses API credits)")
+    p.add_argument("--limit", type=int, help="Most jobs to score this run")
+
+    sub.add_parser("jobs", help="Show scored matches, best first")
+
+    p = sub.add_parser("show", help="Show full details for one job")
+    p.add_argument("id", type=int)
 
     p = sub.add_parser("status", help="Change an application's status")
     p.add_argument("id", type=int, help="The # shown by 'list'")
@@ -136,7 +276,12 @@ def main():
 
     tracker = Tracker(config["tracker_path"])
     try:
-        commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list, "status": cmd_status}
+        if args.command == "find":
+            return cmd_find(config, tracker, args)
+        if args.command == "score":
+            return cmd_score(config, tracker, args)
+        commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
+                    "status": cmd_status, "jobs": cmd_jobs, "show": cmd_show}
         return commands[args.command](tracker, args)
     finally:
         tracker.close()

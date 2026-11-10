@@ -7,10 +7,95 @@ tracker_path: data/applications.db
 # The term you're applying for.
 target_term: Summer 2027
 
-# Kinds of roles you want. Used later (Phase 2) to filter listings.
-target_roles:
-  - business analyst
-  - systems analyst
-  - IT
-  - data analyst
-  - data
+# --- Phase 2: finding internships -------------------------------------------
+search:
+  # A job title must contain at least one of these (whole words, any case)...
+  include_keywords:
+    - business analyst
+    - business analysis
+    - business systems
+    - business technology
+    - business and technology
+    - systems analyst
+    - data analyst
+    - data analytics
+    - business analytics
+    - analytics
+    - business intelligence
+    - information technology
+    - information systems
+    - IT
+    - technology
+    - ERP
+    - data
+    - analyst
+    - consultant
+    - consulting
+    - strategy
+    - operations
+    - deployment strategist
+
+  # ...and none of these. These are roles that need a different background
+  # (CS, engineering, PhD research, quant finance).
+  exclude_keywords:
+    - software engineer
+    - software engineering
+    - software developer
+    - engineer
+    - engineering
+    - machine learning
+    - ML
+    - AI research
+    - research
+    - scientist
+    - PhD
+    - quant
+    - quantitative
+    - trading
+    - trader
+    - hardware
+    - mechanical
+    - electrical
+    - firmware
+    - embedded
+    - designer
+    - investment banking
+    - MBA
+    - master's
+    - masters
+    - graduate
+
+  # Skip internships located only outside the US.
+  us_only: true
+
+# Company job boards to check directly, besides the SimplifyJobs list.
+# The name is the part after greenhouse.io/ or jobs.lever.co/ in a job link.
+greenhouse_boards:
+  - appian        # McLean, VA
+  - stripe
+  - robinhood
+  - coinbase
+  - datadog
+  - cloudflare
+  - affirm
+  - lyft
+  - pinterest
+  - databricks
+  - figma
+  - carvana
+  - samsara
+  - sigmacomputing
+lever_boards:
+  - palantir      # big DC/Virginia presence
+  - zoox
+  - shieldai
+
+# --- Phase 2: scoring with Claude --------------------------------------------
+scoring:
+  model: claude-opus-5-5
+  # How hard Claude thinks: low, medium, high. Higher = better but costs more.
+  effort: low
+  # Jobs scoring below this (0-100) are marked "skipped".
+  min_fit_score: 65
+  # Most jobs to score in one run, unless you pass --limit. Protects your credits.
+  default_limit: 10
