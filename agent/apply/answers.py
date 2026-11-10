@@ -34,6 +34,60 @@ ALWAYS_YOURS = re.compile(
     re.I,
 )
 
+# Voluntary self-identification questions. These are answered ONLY by the
+# code below, on your computer: neither your answers nor these questions
+# are ever sent to Claude.
+SENSITIVE = [
+    # (profile key, words that identify the question). Checked in this order,
+    # so "Race/Ethnicity (incl. Hispanic)" counts as the race question.
+    ("race_ethnicity", re.compile(r"\brace\b", re.I)),
+    ("hispanic_or_latino", re.compile(r"hispanic|latin[oax]", re.I)),
+    ("race_ethnicity", re.compile(r"ethnic", re.I)),
+    ("gender", re.compile(r"\bgender\b|\bsex\b", re.I)),
+    ("veteran_status", re.compile(r"veteran|military|armed forces", re.I)),
+    ("disability_status", re.compile(r"disabilit", re.I)),
+]
+SENSITIVE_KEYS = {key for key, _ in SENSITIVE}
+# Other personal questions with no profile answer: always left for you, never sent.
+OTHER_PERSONAL = re.compile(r"sexual orientation|transgender|pronoun|lgbt", re.I)
+
+DECLINE_WORDS = re.compile(r"decline|prefer not|don.?t wish|do not wish|choose not|not to (answer|disclose|say)", re.I)
+
+
+def sensitive_key(question):
+    """Which profile answer a self-identification question needs, or None."""
+    for key, pattern in SENSITIVE:
+        if pattern.search(question.label):
+            return key
+    return None
+
+
+def is_personal(question):
+    return sensitive_key(question) is not None or bool(OTHER_PERSONAL.search(question.label))
+
+
+def match_sensitive(question, profile):
+    """Pick the form's option for a self-identification question using plain
+    text matching (no AI). Returns the option, or None to leave it for you."""
+    key = sensitive_key(question)
+    answer = profile.get(key, "").strip() if key else ""
+    if not answer or question.kind not in CHOICE_KINDS or not question.options:
+        return None
+    wanted = answer.lower()
+    # 1. Exact match, ignoring case.
+    for option in question.options:
+        if option.strip().lower() == wanted:
+            return option
+    # 2. "Decline to self-identify" is worded differently on every form.
+    if DECLINE_WORDS.search(answer):
+        return next((o for o in question.options if DECLINE_WORDS.search(o)), None)
+    # 3. One contains the other, e.g. "Black" vs "Black or African American".
+    #    Only if exactly one option matches, so we never guess between two.
+    hits = [o for o in question.options
+            if not DECLINE_WORDS.search(o) and (wanted in o.lower() or o.lower() in wanted)]
+    return hits[0] if len(hits) == 1 else None
+
+
 ANSWER_SCHEMA = {
     "type": "object",
     "properties": {
@@ -68,9 +122,8 @@ the profile's fact (e.g. profile gpa "3.80" -> option "3.5 - 4.0").
 values are left out of the profile on purpose); it's an essay, "why", or \
 open-ended question; it's a consent, agreement, certification, or \
 acknowledgment; it asks about pay; it asks about referrals or relatives.
-- Work authorization, sponsorship, and self-identification (gender, race, \
-veteran, disability): answer ONLY if the profile states it, and pick the \
-matching option.
+- Work authorization and sponsorship: answer ONLY if the profile states it, \
+and pick the matching option.
 Return one entry for every question key."""
 
 
@@ -98,9 +151,20 @@ def validate(question, answer, allowed_words):
 def plan_answers(claude, model, profile, resume_text, questions, effort="low"):
     """Return {question key: answer} for the questions that can safely be
     filled. Everything else is left for you."""
-    askable = [q for q in questions if q.kind != "file" and not ALWAYS_YOURS.search(q.label)]
+    answers = {}
+    # Self-identification questions: matched by code only, never sent to Claude.
+    for q in questions:
+        if is_personal(q):
+            choice = match_sensitive(q, profile)
+            if choice is not None:
+                answers[q.key] = choice
+
+    askable = [q for q in questions
+               if q.kind != "file" and not ALWAYS_YOURS.search(q.label) and not is_personal(q)]
     if not askable:
-        return {}
+        return answers
+    # Your self-identification answers are removed before anything is sent.
+    shareable = {k: v for k, v in profile.items() if k not in SENSITIVE_KEYS}
     listing = yaml.safe_dump(
         [{"key": q.key, "question": q.label, "type": q.kind,
           **({"options": q.options} if q.options else {})} for q in askable],
@@ -108,13 +172,12 @@ def plan_answers(claude, model, profile, resume_text, questions, effort="low"):
     )
     result = claude.ask(
         model, ANSWER_PROMPT,
-        f"<profile>\n{yaml.safe_dump(profile, sort_keys=False, allow_unicode=True)}</profile>\n\n"
+        f"<profile>\n{yaml.safe_dump(shareable, sort_keys=False, allow_unicode=True)}</profile>\n\n"
         f"<resume>\n{resume_text}\n</resume>\n\n<questions>\n{listing}</questions>",
         ANSWER_SCHEMA, effort=effort,
     )
-    allowed = _words(" ".join(profile.values()) + " " + resume_text)
+    allowed = _words(" ".join(shareable.values()) + " " + resume_text)
     by_key = {q.key: q for q in askable}
-    answers = {}
     for item in result["answers"]:
         q = by_key.get(item["key"])
         if q is None or item["leave_for_student"]:

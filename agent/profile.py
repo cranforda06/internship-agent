@@ -55,8 +55,11 @@ needs_accommodations: ""             # Yes / No
 needs_housing: ""                    # Yes / No / Unsure
 
 # --- Voluntary self-identification (optional) ---
-# Every form lets you decline. Write exactly what you'd pick, e.g.
+# PRIVATE: these answers never leave your computer. They are matched to each
+# form's options by code on your Mac, and are never sent to Claude.
+# Every form lets you decline. Write what you'd pick, e.g.
 # "Decline to self-identify", or leave blank to answer on each form yourself.
+# If a form's options don't clearly match your answer, it's left for you.
 gender: ""
 race_ethnicity: ""
 hispanic_or_latino: ""

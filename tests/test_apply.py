@@ -177,3 +177,55 @@ def test_review_page_approve_needs_token(tmp_path):
     client.post(f"/job/{job}/approve", data={"token": review.TOKEN})
     assert t.get(job)["status"] == "approved"
     t.close()
+
+
+# --- Self-identification answers never go to Claude -------------------------------
+
+class RecordingClaude:
+    """Fake Claude that records exactly what it was sent."""
+    def __init__(self):
+        self.sent = ""
+
+    def ask(self, model, system, prompt, schema, effort="low", max_tokens=16000):
+        self.sent += prompt
+        return {"answers": []}
+
+
+def test_demographics_are_matched_locally_and_never_sent():
+    profile = dict(PROFILE, race_ethnicity="Black or African American",
+                   veteran_status="Decline to self-identify", gender="Male")
+    questions = [
+        Question("q_race", "What is your race/ethnicity?", "combobox",
+                 ["Asian", "Black or African American", "White", "Decline to self-identify"]),
+        Question("q_vet", "Veteran status", "combobox",
+                 ["I am a protected veteran", "I am not a protected veteran", "I don't wish to answer"]),
+        Question("q_gender", "Which most closely describes your gender?", "combobox", ["Male", "Female", "Decline"]),
+        Question("q_orient", "Sexual orientation", "combobox", ["Straight", "Gay", "Prefer not to say"]),
+        Question("q_year", "Graduation year", "combobox", ["2026", "2027"]),
+    ]
+    claude = RecordingClaude()
+    answers = plan_answers(claude, "claude-opus-5-5", profile, "resume", questions)
+
+    assert answers["q_race"] == "Black or African American"
+    assert answers["q_vet"] == "I don't wish to answer"        # "decline" matched a differently-worded option
+    assert answers["q_gender"] == "Male"
+    assert "q_orient" not in answers                            # no profile answer: left for you
+    # Nothing personal reached Claude: not your answers, not even those questions.
+    for secret in ("Black or African", "Decline to self-identify", "Male", "race", "Veteran",
+                   "gender", "orientation"):
+        assert secret not in claude.sent, secret
+    assert "Graduation year" in claude.sent                     # ordinary questions still go
+
+
+def test_sensitive_match_never_guesses_between_two_options():
+    from agent.apply.answers import match_sensitive
+    q = Question("q", "Race", "combobox", ["Asian", "Asian Indian", "White"])
+    assert match_sensitive(q, {"race_ethnicity": "asian"}) == "Asian"      # exact wins
+    q2 = Question("q", "Race", "combobox", ["Black (Caribbean)", "Black (African)", "White"])
+    assert match_sensitive(q2, {"race_ethnicity": "Black"}) is None        # two possible: left for you
+
+
+def test_race_question_mentioning_hispanic_counts_as_race():
+    from agent.apply.answers import sensitive_key
+    assert sensitive_key(Question("q", "Race/Ethnicity (including Hispanic or Latino)", "combobox")) == "race_ethnicity"
+    assert sensitive_key(Question("q", "Are you Hispanic or Latino?", "combobox")) == "hispanic_or_latino"
