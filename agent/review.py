@@ -19,6 +19,8 @@ from pathlib import Path
 from flask import Flask, abort, redirect, request, send_file
 
 from agent import render
+from agent.filters import age_text
+from agent.sources.trust import classify
 from agent.tailor import code_checks
 
 # A random password for this session's buttons, so other websites you have
@@ -71,6 +73,17 @@ def page(title, body):
 
 def esc(text):
     return html.escape(str(text or ""))
+
+
+def source_pill(row):
+    """A small label saying whether the job link is on a verified site."""
+    level, where = classify(row["link"], row["company"])
+    if level == "hiring_system":
+        return f"<span class='pill ok' title='An official hiring system the company uses'>✓ {esc(where)}</span>"
+    if level == "company_site":
+        return f"<span class='pill ok' title='{esc(where)}'>✓ company's own site</span>"
+    return (f"<span class='pill bad' title='Make sure this is the company&#39;s real careers page'>"
+            f"⚠ unverified site: {esc(where)}</span>")
 
 
 def _short(location, limit=90):
@@ -146,7 +159,8 @@ def create_app(config, tracker):
                     warn = " <span class='pill bad'>applied here before</span>"
                 cards.append(
                     f"<div class='card row'><div><b>{esc(r['company'])}</b> - {esc(r['role'])}"
-                    f"<div class='muted'>{esc(_short(r['location']))} · fit {r['fit_score']}</div></div>"
+                    f"<div class='muted'>{esc(_short(r['location']))} · fit {r['fit_score']} · "
+                    f"{esc(age_text(r['posted']))} · {source_pill(r)}</div></div>"
                     f"<div>{pill}{warn} <a class='btn edit' href='/job/{r['id']}'>Open</a></div></div>")
         cards.append("<p class='muted'>When you've approved jobs, run <code>python main.py apply</code> "
                      "in the terminal.</p>")
@@ -182,7 +196,7 @@ def create_app(config, tracker):
 
         body = f"""
         <div class='card row'><div><h2 style='margin:0'>{esc(r['company'])} - {esc(r['role'])}</h2>
-          <div class='muted' title='{esc(r['location'])}'>{esc(_short(r['location']))} · posted {esc(r['posted'])} ·
+          <div class='muted' title='{esc(r['location'])}'>{esc(_short(r['location']))} · {esc(age_text(r['posted']))} · {source_pill(r)} ·
           <a href='{esc(r['link'])}' target='_blank' rel='noopener'>read the posting ↗</a>
           <span>(just to read it: the agent fills the form when you run <code>apply</code>)</span></div></div>
           <div>{buttons}</div></div>

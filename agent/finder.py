@@ -17,42 +17,49 @@ from agent.tracker import DuplicateError
 
 
 def gather_jobs(config, log=print):
-    """Download from every source. One broken source doesn't stop the others."""
-    jobs = []
+    """Download from every source. One broken source doesn't stop the others.
 
-    def collect(label, fetch):
+    Returns (jobs, failed): `failed` is the set of sources ("simplify",
+    "greenhouse", "lever") where at least one download failed. We only call a
+    job "closed" if its source downloaded completely.
+    """
+    jobs, failed = [], set()
+
+    def collect(label, fetch, source):
         try:
             found = fetch()
             jobs.extend(found)
             return len(found)
         except Exception as e:  # network problems, a board that was renamed, etc.
             log(f"  ! Couldn't load {label}: {e}")
+            failed.add(source)
             return 0
 
     term = config["target_term"]
-    n = collect("SimplifyJobs list", lambda: simplify.fetch(term))
+    n = collect("SimplifyJobs list", lambda: simplify.fetch(term), "simplify")
     log(f"  SimplifyJobs {term} list: {n} active listings")
 
     total = 0
     for board in config.get("greenhouse_boards", []):
-        total += collect(f"Greenhouse board '{board}'", lambda: greenhouse.fetch_board(board))
+        total += collect(f"Greenhouse board '{board}'", lambda: greenhouse.fetch_board(board), "greenhouse")
     for board in config.get("lever_boards", []):
-        total += collect(f"Lever board '{board}'", lambda: lever.fetch_board(board))
+        total += collect(f"Lever board '{board}'", lambda: lever.fetch_board(board), "lever")
     log(f"  Greenhouse/Lever company boards: {total} jobs (all kinds, not just internships)")
-    return jobs
+    return jobs, failed
 
 
-def refilter_unscored(tracker, job_filter):
-    """Re-check found-but-unscored jobs against the current filters.
+def refilter_found(tracker, job_filter):
+    """Re-check every "found" job (scored or not) against the current filters.
 
-    If you change the keywords in config.yaml, jobs found under the old
-    rules are re-checked, so you don't pay to score ones you now rule out.
+    Catches jobs that got too old since they were found, and jobs ruled out
+    by settings you changed, before any money is spent tailoring them.
+    Jobs you already approved or that are tailored and queued are left alone.
     Returns how many were marked skipped.
     """
     skipped = 0
-    for row in tracker.unscored(limit=None):
+    for row in tracker.list_all(status="found"):
         job = Job(row["company"], row["role"], row["link"] or "", row["location"] or "",
-                  row["source"] or "")
+                  row["source"] or "", posted=row["posted"] or "")
         reason = job_filter.reason_to_drop(job)
         if reason:
             note = f"Filtered out after a settings change: {reason}"
@@ -71,16 +78,44 @@ def _set_note(tracker, app_id, note):
         tracker.conn.execute("UPDATE applications SET notes = ? WHERE id = ?", (note, app_id))
 
 
+refilter_unscored = refilter_found  # older name, kept so nothing breaks
+
+
+def mark_closed(tracker, jobs, failed):
+    """Jobs we found earlier that are no longer listed are probably closed.
+
+    Only checked for sources that downloaded completely this time, so a
+    network hiccup never marks a job closed by mistake. Found and queued
+    jobs are marked skipped; returns how many.
+    """
+    from agent.tracker import normalize_link
+
+    open_links = {normalize_link(j.url) for j in jobs}
+    closed = 0
+    for status in ("found", "queued"):
+        for row in tracker.list_all(status=status):
+            if row["source"] not in ("simplify", "greenhouse", "lever") or row["source"] in failed:
+                continue
+            if normalize_link(row["link"]) not in open_links:
+                tracker.update_status(row["id"], "skipped")
+                _set_note(tracker, row["id"], "Posting closed: no longer listed as open")
+                closed += 1
+    return closed
+
+
 def find_new_jobs(config, tracker, log=print):
     """Run the whole find step. Returns a Counter summarizing what happened."""
     job_filter = JobFilter(config["search"], config["target_term"])
     results = Counter()
-    refiltered = refilter_unscored(tracker, job_filter)
+    refiltered = refilter_found(tracker, job_filter)
     if refiltered:
-        results["earlier finds now skipped (filters or similar to a past application)"] = refiltered
+        results["earlier finds now skipped (too old, settings, or already applied)"] = refiltered
 
     log("Downloading listings...")
-    jobs = gather_jobs(config, log)
+    jobs, failed = gather_jobs(config, log)
+    closed = mark_closed(tracker, jobs, failed)
+    if closed:
+        results["earlier finds now closed (no longer listed)"] = closed
     for job in jobs:
         reason = job_filter.reason_to_drop(job)
         if reason:

@@ -6,6 +6,7 @@ The keyword lists live in config.yaml so you can tune them.
 """
 
 import re
+from datetime import date
 
 US_STATES = set("""AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS
 MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC PR""".split())
@@ -83,14 +84,35 @@ def adjusted_score(fit_score, location, search_config):
     return min(100, fit_score + bonus)
 
 
+def posting_age_days(posted, today=None):
+    """Days since a "2026-11-01" style date, or None if unknown."""
+    if not posted:
+        return None
+    try:
+        return ((today or date.today()) - date.fromisoformat(posted[:10])).days
+    except ValueError:
+        return None
+
+
+def age_text(posted, today=None):
+    """'posted 6 days ago', 'posted today', or 'post date unknown'."""
+    days = posting_age_days(posted, today)
+    if days is None:
+        return "post date unknown"
+    return "posted today" if days <= 0 else f"posted {days} day{'s' if days != 1 else ''} ago"
+
+
 class JobFilter:
     """Applies all the filters, using the settings from config.yaml."""
 
-    def __init__(self, search_config, term):
+    def __init__(self, search_config, term, today=None):
         self.include = _keyword_pattern(search_config["include_keywords"])
         self.exclude = _keyword_pattern(search_config["exclude_keywords"])
         self.us_only = search_config.get("us_only", True)
+        self.max_age = search_config.get("max_posting_age_days")
+        self.only_verified = search_config.get("only_verified_sites", False)
         self.term = term
+        self.today = today
 
     def reason_to_drop(self, job):
         """Return why a job should be dropped, or None if it passes."""
@@ -104,4 +126,11 @@ class JobFilter:
             return "different term"
         if self.us_only and not is_us_location(job.location):
             return "outside the US"
+        age = posting_age_days(job.posted, self.today)
+        if self.max_age and age is not None and age > self.max_age:
+            return f"posted more than {self.max_age} days ago"
+        if self.only_verified:
+            from agent.sources.trust import classify
+            if classify(job.url, job.company)[0] == "unverified":
+                return "not on a verified site"
         return None

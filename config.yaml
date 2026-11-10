@@ -93,6 +93,15 @@ search:
   # Skip internships located only outside the US.
   us_only: true
 
+  # Skip postings older than this many days (newer = fewer applicants and
+  # less chance it's already filled). Jobs with no post date are kept.
+  max_posting_age_days: 30
+
+  # Every job is labeled: official hiring system (Workday, Greenhouse...),
+  # the company's own site, or "unverified". true = drop unverified ones;
+  # false = keep them but show a warning on the review page.
+  only_verified_sites: false
+
   # You'll relocate, but these areas come first: they get a star, a score
   # bonus, and are scored before other jobs. Matched anywhere in the location.
   preferred_locations:

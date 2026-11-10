@@ -312,11 +312,13 @@ def cmd_queue(config, tracker, args):
     if not rows:
         print("Your queue is empty. Run: python main.py prepare")
         return 0
+    from agent.filters import age_text
+
     for r in rows:
         report = json.loads(r["tailor_report"] or "{}")
         flag = "⚠ needs a look" if report.get("needs_attention") else "✓ checks passed"
         print(f"#{r['id']:<5} fit {r['fit_score']:<3} {flag:16} {r['company'][:26]} - {r['role'][:44]}")
-        print(f"       {r['tailored_dir']}")
+        print(f"       {age_text(r['posted'])} · {r['tailored_dir']}")
     print(f"\n{len(rows)} waiting. Full details for one: python main.py show <#>")
     return 0
 
@@ -342,19 +344,27 @@ def cmd_jobs(config, tracker, args):
     # Best first, counting the bonus for Richmond/DC.
     rows = sorted(rows, key=lambda r: -adjusted_score(r["fit_score"], r["location"], search))
 
-    print(f"{'#':<5} {'Rank':<5} {'Fit':<4} {'Company':<24} {'Role':<42} {'Location':<20}")
-    print("-" * 104)
+    from agent.filters import posting_age_days
+    from agent.sources.trust import classify
+
+    print(f"{'#':<5} {'Rank':<5} {'Fit':<4} {'Age':<5} {'Company':<24} {'Role':<40} {'Location':<18}")
+    print("-" * 106)
     for r in rows:
         star = "★" if is_preferred_location(r["location"], preferred) else " "
         rank = adjusted_score(r["fit_score"], r["location"], search)
-        print(f"{r['id']:<5} {rank:<3}{star}  {r['fit_score']:<4} {r['company'][:24]:<24} "
-              f"{r['role'][:42]:<42} {(r['location'] or '')[:20]:<20}")
+        days = posting_age_days(r["posted"])
+        age = f"{days}d" if days is not None else "?"
+        print(f"{r['id']:<5} {rank:<3}{star}  {r['fit_score']:<4} {age:<5} {r['company'][:24]:<24} "
+              f"{r['role'][:40]:<40} {(r['location'] or '')[:18]:<18}")
         warning = _warning_for(tracker, r)
         if warning:
             print(f"      {warning}")
+        level, where = classify(r["link"], r["company"])
+        if level == "unverified":
+            print(f"      ⚠ unverified site ({where}): make sure it's the company's real careers page")
     bonus = search.get("preferred_location_bonus", 0)
     print(f"\n{len(rows)} match(es). Fit = skills match from Claude. "
-          f"Rank = Fit + {bonus} if ★ (Richmond/DC area).")
+          f"Rank = Fit + {bonus} if ★ (Richmond/DC area). Age = days since posted.")
     print("Details for one job: python main.py show 123   (use the number in the # column)")
     return 0
 
@@ -365,9 +375,16 @@ def cmd_show(tracker, args):
         print(f"No job with id {args.id}.")
         return 1
     print(f"{row['company']} - {row['role']}")
+    from agent.filters import age_text
+    from agent.sources.trust import classify
+
     print(f"Status: {row['status']}   Location: {row['location'] or 'n/a'}   "
-          f"Posted: {row['posted'] or 'n/a'}")
+          f"Posted: {row['posted'] or 'n/a'} ({age_text(row['posted'])})")
     print(f"Link: {row['link'] or 'n/a'}")
+    level, where = classify(row["link"], row["company"])
+    print({"hiring_system": f"Source: ✓ {where} (an official hiring system the company uses)",
+           "company_site": f"Source: ✓ the company's own site ({where})",
+           "unverified": f"Source: ⚠ unverified site ({where}): make sure it's the company's real careers page"}[level])
     warning = _warning_for(tracker, row)
     if warning:
         print(warning)
