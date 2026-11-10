@@ -317,3 +317,30 @@ def test_pronouns_matched_locally_and_never_sent():
     answers = plan_answers(claude, "claude-opus-5-5", profile, "resume", [q, Question("y", "Graduation year", "text")])
     assert answers["q_pron"] == "he/him"
     assert "he/him" not in claude.sent and "Pronouns" not in claude.sent
+
+
+def test_veteran_no_matches_however_the_form_words_it():
+    from agent.apply.answers import match_sensitive
+    profile = {"veteran_status": "I am not a protected veteran"}
+
+    def pick(options):
+        return match_sensitive(Question("q", "Veteran status", "combobox", options), profile)
+
+    assert pick(["I am a veteran", "I am not a veteran", "I don't wish to answer"]) == "I am not a veteran"
+    assert pick(["Yes, I am a protected veteran", "No, I am not a protected veteran",
+                 "Decline to self-identify"]) == "No, I am not a protected veteran"
+    assert pick(["I identify as one or more of the classifications of protected veteran",
+                 "I am not a protected veteran", "I do not wish to self-identify"]) == "I am not a protected veteran"
+    # Two different "no" options and no exact match: left for you.
+    assert pick(["I am a protected veteran", "I am not a veteran",
+                 "I am a veteran, but not a protected veteran"]) is None
+
+
+def test_disability_no_and_decline_wordings():
+    from agent.apply.answers import match_sensitive
+    options = ["Yes, I have a disability (or previously had a disability)",
+               "No, I do not have a disability and have not had one in the past",
+               "I do not want to answer"]
+    q = Question("q", "Disability status", "combobox", options)
+    assert match_sensitive(q, {"disability_status": "No, I do not have a disability"}) == options[1]
+    assert match_sensitive(q, {"disability_status": "Decline to self-identify"}) == options[2]

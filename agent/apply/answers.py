@@ -53,7 +53,20 @@ SENSITIVE_KEYS = {key for key, _ in SENSITIVE}
 # Other personal questions with no profile answer: always left for you, never sent.
 OTHER_PERSONAL = re.compile(r"sexual orientation|transgender|lgbt", re.I)
 
-DECLINE_WORDS = re.compile(r"decline|prefer not|don.?t wish|do not wish|choose not|not to (answer|disclose|say)", re.I)
+DECLINE_WORDS = re.compile(
+    r"decline|prefer not|(don.?t|do not) (wish|want)|choose not|not to (answer|disclose|say)|"
+    r"not (disclose|answer|specified)|rather not",
+    re.I,
+)
+
+# Yes/no-style self-ID questions, where "No, I am not a protected veteran" and
+# "I am not a veteran" mean the same thing on different forms.
+YES_NO_KEYS = {"veteran_status", "disability_status", "hispanic_or_latino"}
+NEGATIVE_WORDS = re.compile(r"^\s*no\b|\bnot\b|\b(do not|don.?t|does not|doesn.?t)\b", re.I)
+
+
+def _is_negative(text):
+    return bool(NEGATIVE_WORDS.search(text)) and not DECLINE_WORDS.search(text)
 
 
 def sensitive_key(question):
@@ -89,7 +102,16 @@ def match_sensitive(question, profile):
     #    Only if exactly one option matches, so we never guess between two.
     hits = [o for o in question.options
             if not DECLINE_WORDS.search(o) and (wanted in o.lower() or o.lower() in wanted)]
-    return hits[0] if len(hits) == 1 else None
+    if len(hits) == 1:
+        return hits[0]
+    # 4. Yes/no questions worded differently: a "no" answer picks the form's
+    #    one "no" option ("I am not a protected veteran" -> "I am not a veteran").
+    #    If the form has two different "no" options, it's left for you.
+    if key in YES_NO_KEYS and _is_negative(answer):
+        negatives = [o for o in question.options if _is_negative(o)]
+        if len(negatives) == 1:
+            return negatives[0]
+    return None
 
 
 ANSWER_SCHEMA = {
