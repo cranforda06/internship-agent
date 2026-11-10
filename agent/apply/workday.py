@@ -130,11 +130,15 @@ def _visible_options(page):
     return [o.strip() for o in options.all_inner_texts() if o.strip()]
 
 
-def read_page(page):
-    """Return the questions on the current page that are still empty."""
+def read_page(page, skip=()):
+    """Return the questions on the current page that are still empty.
+
+    Questions in `skip` (as (kind, label)) are left out, and their dropdowns
+    are NOT clicked open, so already-handled fields aren't touched again.
+    """
     questions = []
     for q in page.evaluate(READ_PAGE):
-        if q.pop("filled"):
+        if q.pop("filled") or (q["kind"], q["label"]) in skip:
             continue
         if q["kind"] == "dropdown":
             # Workday only shows a dropdown's choices once it's opened.
@@ -206,14 +210,23 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
 PAGE_SIGNATURE = r"""() => {
   const clean = t => (t || '').replace(/\s+/g, ' ').trim();
   const step = document.querySelector('[data-automation-id="progressBarActiveStep"], h2');
-  const labels = [...document.querySelectorAll('label, legend')]
-    .filter(l => l.offsetWidth || l.offsetHeight).map(l => clean(l.innerText)).filter(Boolean);
+  // Only the questions' own labels, not error messages or dropdown contents,
+  // so the agent's own clicking doesn't look like a new page.
+  const labels = [...document.querySelectorAll(
+      '[data-automation-id^="formField"] > label, [data-automation-id^="formField"] legend, fieldset > legend, label[for]')]
+    .filter(l => (l.offsetWidth || l.offsetHeight) && !l.closest('[role="listbox"]'))
+    .map(l => clean(l.innerText).replace(/\*/g, '')).filter(Boolean);
   return {
     step: step ? clean(step.innerText) : '',
-    labels,
+    labels: [...new Set(labels)].sort(),
     password: !!document.querySelector('input[type=password]'),
+    menuOpen: !!document.querySelector('[role="listbox"] [role="option"]'),
   };
 }"""
+
+
+# Most automatic fills per page (a page that keeps changing is left to you).
+MAX_AUTO_ROUNDS = 3
 
 
 def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resume_pdf, log):
@@ -222,7 +235,7 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
     `attempted` holds the labels already handled on this page, so a field
     you changed is never overwritten, and only newly revealed fields get filled.
     """
-    questions = [q for q in read_page(page) if (q.kind, q.label) not in attempted]
+    questions = read_page(page, skip=attempted)
     if not questions:
         return
     attempted.update((q.kind, q.label) for q in questions)
@@ -274,7 +287,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
         threading.Thread(target=read_keyboard, daemon=True).start()
 
-    current_page, attempted, last_seen, stable_since = None, set(), None, 0.0
+    current_page, attempted, last_seen, stable_since, rounds = None, set(), None, 0.0, 0
     last_filled = None   # the page state we last filled, so we don't keep re-checking it
     started = time.time()
     while time_limit is None or time.time() - started < time_limit:
@@ -298,6 +311,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
         elif choice == "":
             attempted = set()   # Enter: try every empty field on this page again
             last_filled = None
+            rounds = 0
 
         try:
             sig = page.evaluate(PAGE_SIGNATURE)
@@ -307,7 +321,8 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
         # Only fill real application pages: never sign-in pages, never the
         # job posting itself, and only once the page has stopped changing.
-        on_application = "/apply" in page.url and not sig["password"] and sig["labels"]
+        on_application = ("/apply" in page.url and not sig["password"] and sig["labels"]
+                          and not sig["menuOpen"])   # a dropdown is open: you're busy, wait
         fingerprint = (page.url, sig["step"], tuple(sig["labels"]))
         if fingerprint != last_seen:
             last_seen, stable_since = fingerprint, time.time()
@@ -318,7 +333,15 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
         if on_application and settled and fingerprint != last_filled:
             this_page = (page.url, sig["step"])
             if this_page != current_page:
-                current_page, attempted = this_page, set()
+                current_page, attempted, rounds = this_page, set(), 0
+            rounds += 1
+            if rounds > MAX_AUTO_ROUNDS:
+                if rounds == MAX_AUTO_ROUNDS + 1:
+                    print("  (Stopped auto-filling this page so it doesn't keep changing."
+                          " Press Enter here to fill it again.)")
+                last_filled = last_seen = fingerprint
+                time.sleep(poll_seconds)
+                continue
             try:
                 _fill_new_fields(page, attempted, claude, model, profile, resume_text, resume_pdf, log)
             except Exception as e:

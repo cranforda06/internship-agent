@@ -411,3 +411,37 @@ def test_workday_hands_free_fills_each_page_as_it_loads(tmp_path, browser_page):
     assert browser_page.url.endswith("page2.html")
     assert browser_page.input_value("#c") == "Richmond"          # page 2 filled with no Enter pressed
     assert claude.calls == 2                                      # once per page; sign-in page never touched
+
+
+def test_workday_page_that_keeps_changing_does_not_loop(tmp_path, browser_page):
+    import queue
+    from agent.apply import workday
+    folder = tmp_path / "apply"
+    folder.mkdir()
+    (folder / "info.html").write_text("""<html><body><h2>My Information</h2>
+      <div data-automation-id="formField-phoneType"><label>Phone Device Type</label>
+        <button aria-haspopup="listbox" id="dd">Select One</button></div>
+      <div id="menu"></div><div id="extra"></div>
+      <script>
+        window.opens = 0; let n = 0;
+        document.getElementById('dd').addEventListener('click', () => {
+          window.opens++;
+          document.getElementById('menu').innerHTML =
+            '<ul role="listbox"><li role="option">Mobile</li><li role="option">Home</li></ul>';
+        });
+        document.addEventListener('keydown', e => {
+          if (e.key !== 'Escape' || !document.getElementById('menu').innerHTML) return;
+          document.getElementById('menu').innerHTML = '';
+          // Worst case: every time a menu closes, the page adds another field.
+          n++;
+          document.getElementById('extra').insertAdjacentHTML('beforeend',
+            `<div data-automation-id="formField-x${n}"><label for="x${n}">Extra ${n}</label><input id="x${n}"></div>`);
+        });
+      </script></body></html>""")
+
+    claude = LabelClaude({})       # answers nothing, like a blank profile
+    workday.assist(browser_page, (folder / "info.html").as_uri(), claude, "m", PROFILE, "", None,
+                   log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=15)
+
+    assert browser_page.evaluate("window.opens") == 1     # the dropdown was opened only once
+    assert claude.calls <= workday.MAX_AUTO_ROUNDS        # stopped instead of looping
