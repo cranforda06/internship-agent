@@ -12,9 +12,11 @@ control**. It never invents experience and never clicks Submit for you.
 ```
 
 1. **Find**: pulls Summer 2027 listings from the SimplifyJobs GitHub list and
-   public Greenhouse/Lever boards, filters them by keyword, role, term, and
-   location, and fetches full descriptions (Workday, Oracle, Greenhouse, Lever,
-   Ashby, SmartRecruiters).
+   public Greenhouse/Lever boards, filters them by keyword, role, term,
+   location, and posting age (30 days by default), and fetches full
+   descriptions (Workday, Oracle, Greenhouse, Lever, Ashby, SmartRecruiters).
+   Jobs that close are detected and skipped. Every job is labeled by source
+   (official hiring system, company site, or ⚠ unverified).
 2. **Score**: Claude rates each job's fit with your resume (0–100) and explains
    why. Richmond/DC-area jobs get a bonus and are scored first.
 3. **Tailor**: Claude reorders and rewords your resume for the job, using only
@@ -92,6 +94,10 @@ yourself. Type `d` when you're done with the job.
 ## Settings (`config.yaml`)
 
 - **search**: keywords to include/exclude, preferred locations and their bonus.
+  - `max_posting_age_days` (default 30): skip postings older than this.
+  - `only_verified_sites` (default false): `true` drops jobs that aren't on an
+    official hiring system or the company's own site; `false` keeps them but
+    flags them with ⚠.
 - **greenhouse_boards / lever_boards**: extra companies to check directly.
 - **scoring**: model, minimum fit score (default 65).
 - **tailoring**: model and effort.
