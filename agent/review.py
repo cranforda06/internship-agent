@@ -183,7 +183,8 @@ def create_app(config, tracker):
         body = f"""
         <div class='card row'><div><h2 style='margin:0'>{esc(r['company'])} - {esc(r['role'])}</h2>
           <div class='muted' title='{esc(r['location'])}'>{esc(_short(r['location']))} · posted {esc(r['posted'])} ·
-          <a href='{esc(r['link'])}' target='_blank' rel='noopener'>open posting ↗</a></div></div>
+          <a href='{esc(r['link'])}' target='_blank' rel='noopener'>read the posting ↗</a>
+          <span>(just to read it: the agent fills the form when you run <code>apply</code>)</span></div></div>
           <div>{buttons}</div></div>
         {"<div class='card' style='border-color:#b42318'><b>⚠ You've applied at this company before:</b><ul>" + past_html + "</ul></div>" if past else ""}
         <div class='grid'>

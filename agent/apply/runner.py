@@ -49,12 +49,16 @@ def _print_left(left, profile_hint):
         print("  Tip: fill in blanks in data/profile.yaml and the agent will answer those next time.")
 
 
-def apply_to_approved(config, tracker, claude, profile, resume_text, log=print):
+def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, only_ids=None):
+    """Fill in every approved job, or only the job numbers in `only_ids`."""
     from playwright.sync_api import sync_playwright
 
     rows = tracker.list_all(status="approved")
+    if only_ids:
+        rows = [r for r in rows if r["id"] in only_ids]
     if not rows:
-        print("No approved jobs. Approve some on the review page first: python main.py review")
+        print("No approved jobs to apply to. Approve one first: python main.py review "
+              "(or python main.py status <#> approved)")
         return {}
     settings = config.get("apply", {})
     counts = {"submitted": 0, "later": 0, "skipped": 0}

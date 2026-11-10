@@ -299,7 +299,8 @@ def cmd_apply(config, tracker, args):
     profile = load_profile(profile_path)
     print("Opening a browser. For each approved job the agent fills in what it can,")
     print("then waits for YOU to check everything and click Submit.")
-    counts = _run_with_api(claude, lambda: apply_to_approved(config, tracker, claude, profile, resume_text))
+    counts = _run_with_api(claude, lambda: apply_to_approved(
+        config, tracker, claude, profile, resume_text, only_ids=args.ids))
     if counts:
         print(f"Submitted: {counts['submitted']}   Saved for later: {counts['later']}   "
               f"Skipped: {counts['skipped']}")
@@ -438,7 +439,8 @@ def build_parser():
     p = sub.add_parser("review", help="Open the review page in your browser")
     p.add_argument("--port", type=int, default=5050)
 
-    sub.add_parser("apply", help="Fill in applications for approved jobs (you click Submit)")
+    p = sub.add_parser("apply", help="Fill in applications for approved jobs (you click Submit)")
+    p.add_argument("ids", type=int, nargs="*", help="Only these job numbers (default: all approved)")
 
     p = sub.add_parser("show", help="Show full details for one job")
     p.add_argument("id", type=int)
