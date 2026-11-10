@@ -264,13 +264,17 @@ def _prepare(config, tracker, args):
     from agent.scorer import Scorer, score_found_jobs
     from agent.tailor import tailor_queue
 
+    from agent.approval import auto_approve
+
     size = args.count or config["daily"]["queue_size"]
-    queued = len(tracker.list_all(status="queued"))
+    # Jobs tailored but not applied to yet (waiting for review, or approved)
+    # count toward the daily number, so the pipeline never grows past it.
+    queued = len(tracker.list_all(status="queued")) + len(tracker.list_all(status="approved"))
     need = size - queued
     if need <= 0:
-        print(f"Your queue already has {queued} job(s) waiting for review. "
-              f"Review those first: python main.py review")
-        return 0, f"{queued} jobs from before are still waiting. Run: python main.py review"
+        print(f"You already have {queued} tailored job(s) waiting (to review or apply). "
+              f"Finish those first: python main.py review / python main.py apply")
+        return 0, f"{queued} jobs from before are still waiting. Run: python main.py review or apply"
 
     if not args.no_find:
         print("Step 1/3: Finding new internships...")
@@ -296,12 +300,18 @@ def _prepare(config, tracker, args):
     done = _run_with_api(claude, work)
     if done is None:
         return 1, "The Anthropic API returned an error (out of credit or offline?). See the log."
-    print(f"{done} new job(s) tailored. Your queue: {queued + done} waiting for review.")
-    print("See them: python main.py queue")
+    print(f"{done} new job(s) tailored.")
     cost = f" (cost ${claude.cost_so_far:.2f})"
-    if done == 0:
+
+    print("\nAuto-approving strong matches...")
+    auto_approve(config, tracker)
+    to_review = len(tracker.list_all(status="queued"))
+    to_apply = len(tracker.list_all(status="approved"))
+    print(f"\nReady to apply: {to_apply} (python main.py apply)   "
+          f"Need your review: {to_review} (python main.py review)")
+    if done == 0 and not to_apply and not to_review:
         return 0, "No new good matches today." + cost
-    return 0, f"{queued + done} tailored internships ready. Run: python main.py review" + cost
+    return 0, f"{to_apply} ready to apply, {to_review} to review." + cost
 
 
 def cmd_schedule(config, tracker, args):
@@ -373,6 +383,11 @@ def cmd_apply(config, tracker, args):
         print(f"Created {profile_path}. Fill in the blank answers there, then run apply again.")
         return 0
     profile = load_profile(profile_path)
+    from agent.approval import auto_approve
+    approved, _ = auto_approve(config, tracker, log=lambda m: None)
+    if approved:
+        print(f"Auto-approved {len(approved)} strong match(es) from your queue (fit "
+              f"{config['daily']['auto_approve_min_fit']}+).")
     print("Opening a browser. For each approved job the agent fills in what it can,")
     print("then waits for YOU to check everything and click Submit.")
     counts = _run_with_api(claude, lambda: apply_to_approved(

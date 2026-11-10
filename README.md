@@ -1,7 +1,7 @@
 # internship-agent
 
 Finds internships that fit your resume, tailors your resume to each one, and
-fills in the applications. **You review everything and click Submit yourself.**
+fills in the applications. **You check every application and click Submit yourself.**
 It never makes up experience.
 
 ## Every day
@@ -9,7 +9,7 @@ It never makes up experience.
 ```bash
 source venv/bin/activate
 python main.py prepare    # find jobs and tailor your resume for the top 15 (~$2)
-python main.py review     # approve, edit, or skip each one in your browser (Ctrl+C when done)
+python main.py review     # approve, edit, or skip the rest (fit 75+ is approved automatically)
 python main.py apply      # fills in each approved application; you check it and click Submit
 ```
 

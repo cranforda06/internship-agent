@@ -179,6 +179,10 @@ tailoring:
 daily:
   # How many tailored applications "prepare" gets ready for you each day.
   queue_size: 15
+  # Tailored jobs with a fit score at or above this are approved automatically
+  # (no review page); they go straight to "apply", where you still click Submit.
+  # Lower scores still go to the review page. Delete this line to turn it off.
+  auto_approve_min_fit: 75
   # Most jobs "prepare" will score in one run while looking for good matches.
   max_to_score: 40
 
