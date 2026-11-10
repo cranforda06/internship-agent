@@ -355,18 +355,48 @@ def cmd_schedule(config, tracker, args):
 
 
 def cmd_review(config, tracker, args):
-    import webbrowser
+    from agent.review import run_until_done
 
-    from agent.review import create_app
-
-    url = f"http://127.0.0.1:{args.port}/"
-    print(f"Review page: {url}")
-    print("It opens in your browser. Press Ctrl+C here when you're done.")
-    webbrowser.open(url)
-    # One request at a time, because the tracker's database connection can
-    # only be used from one thread.
-    create_app(config, tracker).run(host="127.0.0.1", port=args.port, threaded=False)
+    run_until_done(config, tracker, port=args.port)
+    print("When you're ready, fill in the approved ones: python main.py apply")
     return 0
+
+
+def cmd_go(config, tracker, args):
+    """Everything in one command: prepare (if today's hasn't run), auto-approve,
+    review the rest, then apply to everything approved."""
+    from datetime import date
+
+    from agent import schedule
+    from agent.approval import auto_approve
+    from agent.review import run_until_done
+
+    today = date.today()
+    print("=== Step 1/3: Getting today's jobs ready ===")
+    if schedule.last_run_date() == today:
+        print("Already done today (by the schedule or an earlier run), nothing to pay for.")
+    else:
+        code, message = _prepare(config, tracker, args)
+        if code != 0:
+            print(f"Couldn't prepare new jobs: {message}")
+            print("Continuing with the jobs you already have.")
+        else:
+            schedule.record_run(today)   # so the scheduled run doesn't do it again today
+
+    auto_approve(config, tracker)
+    to_review = tracker.list_all(status="queued")
+    print(f"\n=== Step 2/3: Review ({len(to_review)} job(s) need you) ===")
+    if to_review:
+        run_until_done(config, tracker, port=args.port)
+    else:
+        print("Nothing to review.")
+
+    print(f"\n=== Step 3/3: Apply ===")
+    if not tracker.list_all(status="approved"):
+        print("Nothing approved to apply to today. All done!")
+        return 0
+    args.ids = []
+    return cmd_apply(config, tracker, args)
 
 
 def cmd_apply(config, tracker, args):
@@ -556,6 +586,11 @@ def build_parser():
     p = sub.add_parser("review", help="Open the review page in your browser")
     p.add_argument("--port", type=int, default=5050)
 
+    p = sub.add_parser("go", help="Everything in one: prepare, review, then apply")
+    p.add_argument("--port", type=int, default=5050)
+    p.add_argument("--count", type=int, help=argparse.SUPPRESS)
+    p.add_argument("--no-find", action="store_true", help=argparse.SUPPRESS)
+
     p = sub.add_parser("apply", help="Fill in applications for approved jobs (you click Submit)")
     p.add_argument("ids", type=int, nargs="*", help="Only these job numbers (default: all approved)")
 
@@ -583,10 +618,10 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
-        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule"):
+        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule", "go"):
             handler = {"jobs": cmd_jobs, "tailor": cmd_tailor, "prepare": cmd_prepare,
                        "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply,
-                       "schedule": cmd_schedule}[args.command]
+                       "schedule": cmd_schedule, "go": cmd_go}[args.command]
             return handler(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
                     "status": cmd_status, "show": cmd_show}

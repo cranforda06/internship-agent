@@ -293,3 +293,18 @@ def test_workday_read_and_fill(tmp_path, browser_page):
     assert not browser_page.is_checked("#tc")                                  # terms: always yours
     assert browser_page.title() != "NEXT CLICKED"                              # never clicks Next
     assert {q.label for q in left} == {"Have you previously worked here?", "I agree to the Terms and Conditions"}
+
+
+def test_done_button_stops_review_page(tmp_path):
+    from agent import review
+    resume = tmp_path / "resume.md"
+    resume.write_text("# Pat Doe\n")
+    t = Tracker(tmp_path / "t.db")
+    app = review.create_app({"resume_path": resume}, t)
+    client = app.test_client()
+    assert b"Done reviewing" in client.get("/").data
+    assert client.post("/done").status_code == 403            # needs the session token
+    assert not app.config.get("DONE")
+    client.post("/done", data={"token": review.TOKEN})
+    assert app.config["DONE"] is True
+    t.close()

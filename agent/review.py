@@ -128,6 +128,29 @@ def marked_resume(original, tailored):
     return "".join(out), removed
 
 
+def run_until_done(config, tracker, port=5050, open_browser=True):
+    """Show the review page until you click "Done reviewing" (or press Ctrl+C)."""
+    import webbrowser
+
+    from werkzeug.serving import make_server
+
+    app = create_app(config, tracker)
+    server = make_server("127.0.0.1", port, app)   # one request at a time (see tracker note)
+    url = f"http://127.0.0.1:{port}/"
+    print(f"Review page: {url}")
+    print("Approve or skip each job, then click 'Done reviewing' at the bottom of the list.")
+    if open_browser:
+        webbrowser.open(url)
+    server.timeout = 0.5
+    try:
+        while not app.config.get("DONE"):
+            server.handle_request()
+    except KeyboardInterrupt:
+        print("\nReview page closed.")
+    finally:
+        server.server_close()
+
+
 def create_app(config, tracker):
     app = Flask(__name__)
     original_path = Path(config["resume_path"])
@@ -162,9 +185,17 @@ def create_app(config, tracker):
                     f"<div class='muted'>{esc(_short(r['location']))} · fit {r['fit_score']} · "
                     f"{esc(age_text(r['posted']))} · {source_pill(r)}</div></div>"
                     f"<div>{pill}{warn} <a class='btn edit' href='/job/{r['id']}'>Open</a></div></div>")
-        cards.append("<p class='muted'>When you've approved jobs, run <code>python main.py apply</code> "
-                     "in the terminal.</p>")
+        cards.append("<div class='card row'><span>Finished? This closes the review page and starts "
+                     "filling in your approved applications in the terminal.</span>"
+                     + form_button("/done", "Done reviewing → start applying", "approve") + "</div>")
         return page("Internship review", "".join(cards))
+
+    @app.post("/done")
+    def done():
+        check_token()
+        app.config["DONE"] = True   # run_until_done() sees this and stops the page
+        return page("Done", "<div class='card'><h2>All set ✓</h2><p>You can close this tab. "
+                            "Go back to the terminal: your approved applications are starting.</p></div>")
 
     @app.get("/job/<int:job_id>")
     def job(job_id):

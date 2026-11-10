@@ -8,12 +8,17 @@ It never makes up experience.
 
 ```bash
 source venv/bin/activate
-python main.py prepare    # find jobs and tailor your resume for the top 15 (~$2)
-python main.py review     # approve, edit, or skip the rest (fit 75+ is approved automatically)
-python main.py apply      # fills in each approved application; you check it and click Submit
+python main.py go
 ```
 
-After each job, `apply` asks if you submitted it: `y` yes, `n` later, `s` skip, `v` view resume.
+`go` does the whole day in order:
+1. Finds jobs and tailors your resume for the top 15 (skipped if the schedule already did it today).
+2. Approves fit 75+ matches automatically, then opens the review page for the rest.
+   Approve or skip each, then click **Done reviewing**.
+3. Fills in each approved application. You check it and click Submit, then answer
+   in the terminal: `y` submitted, `n` later, `s` skip, `v` view resume.
+
+The steps also work on their own: `prepare`, `review`, `apply`.
 
 **Workday jobs:** click *Apply* → *Autofill with Resume* and sign in. Then press
 Enter in the terminal on each page to fill it, click *Next* yourself, and type
