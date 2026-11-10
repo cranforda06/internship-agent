@@ -117,11 +117,19 @@ def install(hour, minute, weekdays_only=True):
         plistlib.dump(build_plist(hour, minute, weekdays_only), f)
     result = _launchctl("bootstrap", domain, str(PLIST_PATH))
     if result.returncode != 0:
-        raise RuntimeError(f"macOS didn't accept the schedule: {result.stderr.strip()}")
+        # Some macOS versions reject "bootstrap" with a vague "5: Input/output
+        # error" but accept the older "load" command for the same file.
+        fallback = _launchctl("load", "-w", str(PLIST_PATH))
+        loaded = _launchctl("print", f"{domain}/{LABEL}").returncode == 0
+        if fallback.returncode != 0 or not loaded:
+            raise RuntimeError(f"macOS didn't accept the schedule: {result.stderr.strip()} "
+                               f"{fallback.stderr.strip()}".strip())
 
 
 def uninstall():
     _launchctl("bootout", f"gui/{os.getuid()}/{LABEL}")
+    if PLIST_PATH.exists():
+        _launchctl("unload", "-w", str(PLIST_PATH))   # older command, in case it was loaded that way
     existed = PLIST_PATH.exists()
     PLIST_PATH.unlink(missing_ok=True)
     return existed
