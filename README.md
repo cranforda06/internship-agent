@@ -42,10 +42,11 @@ When `apply` finishes a job it asks **Did you submit it?** Answer `y` (submitted
 `n` (keep for later), `s` (skip), or `v` (view the resume again).
 
 **Automatic daily prep (optional):** `python main.py schedule --time 7:00` makes
-your Mac run `prepare` every day at 7:00 (or when it next wakes up) and show a
-notification when your jobs are ready. `python main.py schedule` shows its status
-and last log; `python main.py schedule --off` turns it off. It never applies to
-anything by itself.
+your Mac run `prepare` every weekday at 7:00 and show a notification when your
+jobs are ready. If the Mac is asleep, it runs when it wakes; if it was shut down,
+it runs when you log in, at most once a day. Add `--every-day` to include
+weekends. `python main.py schedule` shows its status and last log;
+`python main.py schedule --off` turns it off. It never applies to anything by itself.
 
 For **Workday** jobs: click *Apply* → *Autofill with Resume* and sign in yourself,
 then press **Enter** in the terminal on each page to fill it, and click *Next*
@@ -60,7 +61,7 @@ yourself. Type `d` when you're done with the job.
 | `python main.py review` | Opens the review page in your browser (only on your computer). Approve, edit, or skip each tailored job. Option: `--port 5050`. |
 | `python main.py apply` | Fills in every approved application. `python main.py apply 97` does only job #97. Never clicks Submit. |
 | `python main.py queue` | Lists tailored jobs waiting for your review, with ✓/⚠ for the truthfulness checks. |
-| `python main.py schedule --time 7:00` | Runs `prepare` automatically every day and notifies you. `--off` turns it off; no options shows status and the last log. |
+| `python main.py schedule --time 7:00` | Runs `prepare` automatically every weekday and notifies you (`--every-day` includes weekends). `--off` turns it off; no options shows status and the last log. |
 
 ### Finding and scoring (one step at a time)
 | Command | What it does |

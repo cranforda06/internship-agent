@@ -46,25 +46,67 @@ def project_python():
     return str(venv_python) if venv_python.exists() else sys.executable
 
 
-def build_plist(hour, minute):
-    """The settings file macOS reads. Kept as a function so it can be tested."""
+LAST_RUN_PATH = PROJECT_ROOT / "data" / "logs" / "last-scheduled-run.txt"
+
+
+def build_plist(hour, minute, weekdays_only=True):
+    """The settings file macOS reads. Kept as a function so it can be tested.
+
+    macOS starts the job (a) at the scheduled time (or when the Mac wakes up,
+    if it was asleep), and (b) when you log in, in case the Mac was shut down
+    at the scheduled time. The job itself then decides whether to actually
+    run (see should_run), so it runs at most once per day.
+    """
+    days = range(1, 6) if weekdays_only else range(0, 7)    # macOS: 0 = Sunday, 1 = Monday
+    args = [project_python(), str(PROJECT_ROOT / "main.py"), "prepare", "--notify",
+            "--scheduled-at", f"{hour}:{minute:02d}"]
+    if weekdays_only:
+        args.append("--weekdays-only")
     return {
         "Label": LABEL,
         # Full paths, because scheduled jobs don't see your terminal's settings.
-        "ProgramArguments": [project_python(), str(PROJECT_ROOT / "main.py"), "prepare", "--notify"],
+        "ProgramArguments": args,
         "WorkingDirectory": str(PROJECT_ROOT),
-        "StartCalendarInterval": {"Hour": hour, "Minute": minute},
+        "StartCalendarInterval": [{"Weekday": d, "Hour": hour, "Minute": minute} for d in days],
+        "RunAtLoad": True,  # also check at login, to catch up if the Mac was off
+
         "StandardOutPath": str(LOG_PATH),
         "StandardErrorPath": str(LOG_PATH),
         "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
     }
 
 
+def should_run(now, hour, minute, weekdays_only, last_run_date):
+    """Decide if a scheduled start should actually do the work.
+
+    Yes only if: it's a weekday (when weekdays_only), it's at or after the
+    scheduled time, and it hasn't already run today.
+    """
+    if weekdays_only and now.weekday() >= 5:            # Python: 5 = Saturday, 6 = Sunday
+        return False
+    if (now.hour, now.minute) < (hour, minute):
+        return False
+    return last_run_date != now.date()
+
+
+def last_run_date():
+    from datetime import date
+    try:
+        return date.fromisoformat(LAST_RUN_PATH.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def record_run(today):
+    LAST_RUN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LAST_RUN_PATH.write_text(today.isoformat())
+
+
 def _launchctl(*args):
     return subprocess.run(["launchctl", *args], capture_output=True, text=True)
 
 
-def install(hour, minute):
+def install(hour, minute, weekdays_only=True):
     if sys.platform != "darwin":
         raise RuntimeError("Scheduling is set up for macOS only.")
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -72,7 +114,7 @@ def install(hour, minute):
     domain = f"gui/{os.getuid()}"
     _launchctl("bootout", f"{domain}/{LABEL}")          # remove an older version, if any
     with open(PLIST_PATH, "wb") as f:
-        plistlib.dump(build_plist(hour, minute), f)
+        plistlib.dump(build_plist(hour, minute, weekdays_only), f)
     result = _launchctl("bootstrap", domain, str(PLIST_PATH))
     if result.returncode != 0:
         raise RuntimeError(f"macOS didn't accept the schedule: {result.stderr.strip()}")
@@ -85,13 +127,16 @@ def uninstall():
     return existed
 
 
-def current_time():
-    """(hour, minute) of the installed schedule, or None if it's off."""
+def current_schedule():
+    """(hour, minute, weekdays_only) of the installed schedule, or None if it's off."""
     if not PLIST_PATH.exists():
         return None
     with open(PLIST_PATH, "rb") as f:
-        interval = plistlib.load(f).get("StartCalendarInterval", {})
-    return interval.get("Hour", 0), interval.get("Minute", 0)
+        plist = plistlib.load(f)
+    interval = plist.get("StartCalendarInterval", {})
+    first = interval[0] if isinstance(interval, list) else interval
+    weekdays_only = "--weekdays-only" in plist.get("ProgramArguments", [])
+    return first.get("Hour", 0), first.get("Minute", 0), weekdays_only
 
 
 def last_log_lines(n=15):
