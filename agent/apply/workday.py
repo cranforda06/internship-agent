@@ -256,7 +256,8 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     print("   2. Each application page fills itself a moment after it loads.")
     print("      Check it, then click Next/Continue yourself.")
     print("   3. On the Review page, YOU click Submit. Then type d here.")
-    print("  Here: [d] done with this job   [v] view resume   [Enter] re-fill this page")
+    print("  Here: [d] done with this job   [v] view resume   [u] upload resume again   "
+          "[Enter] re-fill this page")
 
     # Your typing is read in the background, so the agent can keep watching
     # the browser at the same time.
@@ -285,6 +286,15 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             return
         if choice == "v":
             show_resume(resume_pdf)
+        elif choice == "u":
+            # Re-upload the tailored resume to every upload box on this page.
+            boxes = page.locator('input[type="file"]')
+            if boxes.count() and resume_pdf:
+                for i in range(boxes.count()):
+                    boxes.nth(i).set_input_files(resume_pdf)
+                print("  ✓ uploaded your tailored resume again.")
+            else:
+                print("  No upload box on this page.")
         elif choice == "":
             attempted = set()   # Enter: try every empty field on this page again
             last_filled = None
