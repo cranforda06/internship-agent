@@ -33,7 +33,7 @@ control**. It never invents experience and never clicks Submit for you.
 ```bash
 source venv/bin/activate        # once per terminal window
 
-python main.py prepare          # find, score, and tailor your top 5 (~$0.80)
+python main.py prepare          # find, score, and tailor your top 15 (~$2)
 python main.py review           # approve / edit / skip in your browser; Ctrl+C when done
 python main.py apply            # fill in each approved application; you click Submit
 ```
@@ -109,7 +109,7 @@ yourself. Type `d` when you're done with the job.
 - **greenhouse_boards / lever_boards**: extra companies to check directly.
 - **scoring**: model, minimum fit score (default 65).
 - **tailoring**: model and effort.
-- **daily**: how many jobs `prepare` gets ready (default 5) and the most it will score per run.
+- **daily**: how many jobs `prepare` gets ready (set to 15) and the most it will score per run.
 - **apply**: model for form answers; whether to open the resume in Preview automatically.
 
 ## Privacy and safety
@@ -127,7 +127,7 @@ yourself. Type `d` when you're done with the job.
 ## Cost
 
 Each command prints what it cost. Roughly, with Opus: scoring ~$0.025/job,
-tailoring ~$0.08/resume, form answers ~$0.02/form, so **~$0.80–0.90/day for 5
+tailoring ~$0.08/resume, form answers ~$0.02/form, so **~$2/day for 15
 applications**. Switching scoring to `claude-haiku-5-5` in `config.yaml` makes
 scoring ~50× cheaper.
 
