@@ -13,6 +13,10 @@ Examples:
     python main.py score --limit 25
     python main.py jobs                 # show the best matches
     python main.py show 42              # full details for job #42
+
+    python main.py prepare              # daily: find, score, tailor your top 5
+    python main.py queue                # tailored jobs waiting for your review
+    python main.py tailor 42            # tailor your resume for one job
 """
 
 import argparse
@@ -118,18 +122,42 @@ def cmd_find(config, tracker, args):
     return 0
 
 
-def cmd_score(config, tracker, args):
-    import anthropic
-
-    from agent.scorer import Scorer, score_found_jobs
+def _setup_claude(config):
+    """Load the API key and resume. Returns (claude, resume_text), or None on error."""
+    from agent.llm import Claude
 
     try:
-        api_key = get_api_key()
-        resume_text = load_resume(config["resume_path"])
+        return Claude(get_api_key()), load_resume(config["resume_path"])
     except (RuntimeError, ResumeError) as e:
         print(e)
-        return 1
+        return None
 
+
+def _run_with_api(claude, work):
+    """Run `work()`, turning API problems into plain messages, and always
+    print what the run cost. Returns work()'s result, or None on an API error."""
+    import anthropic
+
+    try:
+        return work()
+    except anthropic.AuthenticationError:
+        print("Your API key was rejected. Check the key in your .env file.")
+    except anthropic.APIStatusError as e:
+        print(f"The API returned an error ({e.status_code}): {e.message}")
+    except anthropic.APIConnectionError:
+        print("Couldn't reach the Anthropic API. Check your internet connection.")
+    finally:
+        print(f"\n{claude.cost_line()}")
+    return None
+
+
+def cmd_score(config, tracker, args):
+    from agent.scorer import Scorer, score_found_jobs
+
+    setup = _setup_claude(config)
+    if not setup:
+        return 1
+    claude, resume_text = setup
     settings = config["scoring"]
     limit = args.limit or settings["default_limit"]
     waiting = tracker.count_unscored()
@@ -138,30 +166,117 @@ def cmd_score(config, tracker, args):
         return 0
     print(f"Scoring {min(limit, waiting)} of {waiting} waiting job(s) with {settings['model']}...")
 
-    scorer = Scorer(api_key, resume_text, settings["model"], settings.get("effort", "low"))
-    try:
-        counts = score_found_jobs(config, tracker, scorer, limit)
-    except anthropic.AuthenticationError:
-        print("Your API key was rejected. Check the key in your .env file.")
+    scorer = Scorer(claude, resume_text, settings["model"], settings.get("effort", "low"))
+    counts = _run_with_api(claude, lambda: score_found_jobs(config, tracker, scorer, limit))
+    if counts is None:
         return 1
-    except anthropic.APIStatusError as e:
-        print(f"The API returned an error ({e.status_code}): {e.message}")
-        return 1
-    except anthropic.APIConnectionError:
-        print("Couldn't reach the Anthropic API. Check your internet connection.")
-        return 1
-    finally:
-        cost = scorer.cost()
-        if cost is not None:
-            print(f"\nCost of this run: ${cost:.3f} "
-                  f"({scorer.input_tokens:,} input + {scorer.output_tokens:,} output tokens)")
-
     print(f"Good matches: {counts['good']}   Below your minimum "
           f"({settings['min_fit_score']}), skipped: {counts['skipped']}   Errors: {counts['errors']}")
     left = tracker.count_unscored()
     if left:
         print(f"{left} still waiting. Run score again to continue.")
     print("See your matches: python main.py jobs")
+    return 0
+
+
+def cmd_tailor(config, tracker, args):
+    """Tailor your resume for one specific job (by its # from 'jobs')."""
+    from agent.tailor import tailor_job
+
+    row = tracker.get(args.id)
+    if not row:
+        print(f"No job with id {args.id}.")
+        return 1
+    setup = _setup_claude(config)
+    if not setup:
+        return 1
+    claude, resume_text = setup
+    print(f"Tailoring your resume for {row['company']} - {row['role']}...")
+    result = _run_with_api(claude, lambda: tailor_job(
+        claude, config["tailoring"], resume_text, row, config["output_dir"]))
+    if result is None:
+        return 1
+    report, folder = result
+    tracker.update_details(row["id"], tailored_dir=folder, tailor_report=json.dumps(report))
+    if row["status"] == "found":
+        tracker.update_status(row["id"], "queued")
+    _print_report(report, folder)
+    return 0
+
+
+def _print_report(report, folder):
+    print(f"\nSaved to: {folder}")
+    print("\nWhat changed:")
+    for change in report["changes"]:
+        print(f"  • {change}")
+    problems = report["code_check_problems"]
+    issues = report["ai_check_issues"]
+    if not problems and not issues and report["pages"] == 1:
+        print("\n✓ Truthfulness checks passed. Fits on 1 page.")
+        return
+    print("\n⚠ Please look at these before using this resume:")
+    if report["pages"] > 1:
+        print(f"  - The PDF is {report['pages']} pages (should be 1).")
+    for p in problems:
+        print(f"  - {p}")
+    for i in issues:
+        print(f"  - [{i['severity']}] \"{i['tailored_text']}\": {i['problem']}")
+
+
+def cmd_prepare(config, tracker, args):
+    """The daily routine: find new jobs, score until there are enough good
+    matches, then tailor resumes for the best ones."""
+    from agent.scorer import Scorer, score_found_jobs
+    from agent.tailor import tailor_queue
+
+    size = args.count or config["daily"]["queue_size"]
+    queued = len(tracker.list_all(status="queued"))
+    need = size - queued
+    if need <= 0:
+        print(f"Your queue already has {queued} job(s) waiting for review. "
+              f"Review those first (Phase 4 adds the review page).")
+        return 0
+
+    if not args.no_find:
+        print("Step 1/3: Finding new internships...")
+        cmd_find(config, tracker, args)
+    setup = _setup_claude(config)
+    if not setup:
+        return 1
+    claude, resume_text = setup
+
+    def work():
+        have = len(tracker.scored_matches())
+        if have < need:
+            print(f"\nStep 2/3: Scoring until {need - have} more good match(es) are found...")
+            scorer = Scorer(claude, resume_text, config["scoring"]["model"],
+                            config["scoring"].get("effort", "low"))
+            score_found_jobs(config, tracker, scorer, config["daily"]["max_to_score"],
+                             stop_after_good=need - have)
+        else:
+            print(f"\nStep 2/3: Already have {have} scored match(es), no scoring needed.")
+        print(f"\nStep 3/3: Tailoring your resume for the top {need}...")
+        return tailor_queue(config, tracker, claude, resume_text, need)
+
+    done = _run_with_api(claude, work)
+    if done is None:
+        return 1
+    print(f"{done} new job(s) tailored. Your queue: {queued + done} waiting for review.")
+    print("See them: python main.py queue")
+    return 0
+
+
+def cmd_queue(config, tracker, args):
+    rows = tracker.list_all(status="queued")
+    if not rows:
+        print("Your queue is empty. Run: python main.py prepare")
+        return 0
+    for r in rows:
+        report = json.loads(r["tailor_report"] or "{}")
+        flag = "⚠ needs a look" if report.get("needs_attention") else "✓ checks passed"
+        print(f"#{r['id']:<5} fit {r['fit_score']:<3} {flag:16} {r['company'][:26]} - {r['role'][:44]}")
+        print(f"       {r['tailored_dir']}")
+    print(f"\n{len(rows)} waiting. Full details for one: python main.py show <#>")
     return 0
 
 
@@ -228,6 +343,9 @@ def cmd_show(tracker, args):
             print(f"  - {g}")
     if row["notes"]:
         print(f"\nNotes: {row['notes']}")
+    if row["tailor_report"]:
+        print("\n--- Tailored resume ---")
+        _print_report(json.loads(row["tailor_report"]), row["tailored_dir"])
     return 0
 
 
@@ -268,6 +386,15 @@ def build_parser():
 
     sub.add_parser("jobs", help="Show scored matches, best first")
 
+    p = sub.add_parser("tailor", help="Tailor your resume for one job (uses API credits)")
+    p.add_argument("id", type=int, help="The # shown by 'jobs'")
+
+    p = sub.add_parser("prepare", help="Daily routine: find, score, and tailor your top matches")
+    p.add_argument("--count", type=int, help="How many to prepare (default from config.yaml)")
+    p.add_argument("--no-find", action="store_true", help="Skip downloading new listings")
+
+    sub.add_parser("queue", help="Show tailored jobs waiting for your review")
+
     p = sub.add_parser("show", help="Show full details for one job")
     p.add_argument("id", type=int)
 
@@ -292,8 +419,10 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
-        if args.command == "jobs":
-            return cmd_jobs(config, tracker, args)
+        if args.command in ("jobs", "tailor", "prepare", "queue"):
+            handler = {"jobs": cmd_jobs, "tailor": cmd_tailor,
+                       "prepare": cmd_prepare, "queue": cmd_queue}[args.command]
+            return handler(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
                     "status": cmd_status, "show": cmd_show}
         return commands[args.command](tracker, args)

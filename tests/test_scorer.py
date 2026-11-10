@@ -5,12 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent.llm import Claude
 from agent.scorer import ScoreError, Scorer, score_found_jobs
 from agent.tracker import Tracker
 
 
 class FakeClient:
     """Pretends to be the Anthropic client and returns canned answers."""
+    # Used by both the scorer and the tailor tests.
 
     def __init__(self, answers):
         self.answers = list(answers)  # each one: (stop_reason, score dict)
@@ -31,17 +33,21 @@ def answer(score):
                          "matching_strengths": ["SQL"], "gaps": []})
 
 
+def make_claude(answers):
+    claude = Claude(api_key="fake")
+    claude.client = FakeClient(answers)
+    return claude
+
+
 def make_scorer(answers):
-    s = Scorer(api_key="fake", resume_text="resume", model="claude-opus-5-5")
-    s.client = FakeClient(answers)
-    return s
+    return Scorer(make_claude(answers), resume_text="resume", model="claude-opus-5-5")
 
 
 def test_score_parses_answer_and_tracks_cost():
     s = make_scorer([answer(80)])
     result = s.score("job")
     assert result["score"] == 80
-    assert s.cost() == pytest.approx((1000 * 4 + 200 * 20) / 1_000_000)
+    assert s.claude.cost_so_far == pytest.approx((1000 * 4 + 200 * 20) / 1_000_000)
 
 
 def test_refusal_raises():
@@ -84,4 +90,16 @@ def test_preferred_locations_scored_first_and_bonus_counts(tmp_path):
     score_found_jobs(config, t, make_scorer([answer(60)]), limit=1, log=lambda m: None)
     assert t.get(near)["fit_score"] == 60 and t.get(near)["status"] == "found"
     assert t.get(far)["fit_score"] is None
+    t.close()
+
+
+def test_stop_after_good(tmp_path):
+    t = Tracker(tmp_path / "t.db")
+    for i in range(5):
+        t.add(f"Company{i}", "IT Intern", status="found", description="x", posted=f"2026-11-0{i+1}")
+    config = {"scoring": {"min_fit_score": 65}}
+    counts = score_found_jobs(config, t, make_scorer([answer(80)] * 5), limit=10,
+                              log=lambda m: None, stop_after_good=2)
+    assert counts["good"] == 2          # stopped early, saving credits
+    assert t.count_unscored() == 3
     t.close()

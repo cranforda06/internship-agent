@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 # Every status a job can have, roughly in the order it moves through them.
 STATUSES = [
     "found",       # the agent found it, you haven't decided yet
+    "queued",      # resume tailored, waiting for your review
     "approved",    # you said yes, not submitted yet
     "applied",
     "assessment",  # they sent an online test / assessment
@@ -54,6 +55,8 @@ EXTRA_COLUMNS = {
     "fit_score": "INTEGER",   # 0-100, from Claude
     "fit_summary": "TEXT",    # Claude's reasons, stored as JSON text
     "scored_at": "TEXT",
+    "tailored_dir": "TEXT",   # folder with the tailored resume files
+    "tailor_report": "TEXT",  # what changed + truthfulness check results (JSON)
 }
 
 # Statuses that mean you actually applied somewhere (vs. the agent just finding it).

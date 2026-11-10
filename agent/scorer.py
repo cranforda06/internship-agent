@@ -8,18 +8,9 @@ from 0 to 100 plus its reasons. We ask for the answer in a fixed format
 import json
 from datetime import date
 
-import anthropic
-
 from agent.filters import adjusted_score, is_preferred_location
+from agent.llm import ClaudeError
 from agent.sources.descriptions import fetch_description
-
-# Price per million tokens (input, output) in US dollars, used to show what
-# each run cost. Update if prices change.
-PRICES = {
-    "claude-opus-5-5": (4.00, 20.00),
-    "claude-sonnet-5-5": (2.00, 10.00),
-    "claude-haiku-5-5": (0.10, 0.50),
-}
 
 # The exact shape Claude's answer must have.
 SCORE_SCHEMA = {
@@ -101,65 +92,32 @@ def build_job_text(row, description):
 
 
 class Scorer:
-    def __init__(self, api_key, resume_text, model, effort="low"):
-        self.client = anthropic.Anthropic(api_key=api_key)
+    def __init__(self, claude, resume_text, model, effort="low"):
+        self.claude = claude  # an agent.llm.Claude, shared so costs add up in one place
         self.resume_text = resume_text
         self.model = model
         self.effort = effort
-        self.input_tokens = 0   # running totals, for the cost summary
-        self.output_tokens = 0
 
     def score(self, job_text):
         """Return a dict with score, summary, matching_strengths, gaps."""
-        response = self.client.beta.messages.create(
-            model=self.model,
-            max_tokens=8000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"<resume>\n{self.resume_text}\n</resume>\n\n"
-                    f"<job>\n{job_text}\n</job>\n\n"
-                    "Score how well this internship fits this student."
-                ),
-            }],
-            output_config={
-                "effort": self.effort,
-                "format": {"type": "json_schema", "schema": SCORE_SCHEMA},
-            },
-            # If Claude's safety filter wrongly declines a request, the API
-            # retries it on a fallback model automatically.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-        self.input_tokens += response.usage.input_tokens
-        self.output_tokens += response.usage.output_tokens
-
-        if response.stop_reason == "refusal":
-            raise ScoreError("Claude declined to score this job.")
-        if response.stop_reason == "max_tokens":
-            raise ScoreError("The answer was cut off before it finished.")
-
-        text = next((b.text for b in response.content if b.type == "text"), None)
-        if text is None:
-            raise ScoreError("Claude's answer had no text in it.")
-        result = json.loads(text)
+        prompt = (f"<resume>\n{self.resume_text}\n</resume>\n\n"
+                  f"<job>\n{job_text}\n</job>\n\n"
+                  "Score how well this internship fits this student.")
+        try:
+            result = self.claude.ask(self.model, SYSTEM_PROMPT, prompt, SCORE_SCHEMA,
+                                     effort=self.effort, max_tokens=8000)
+        except ClaudeError as e:
+            raise ScoreError(str(e))
         result["score"] = max(0, min(100, int(result["score"])))  # keep it 0-100
         return result
 
-    def cost(self):
-        """Dollars spent so far in this run (None if the model's price is unknown)."""
-        if self.model not in PRICES:
-            return None
-        price_in, price_out = PRICES[self.model]
-        return (self.input_tokens * price_in + self.output_tokens * price_out) / 1_000_000
 
-
-def score_found_jobs(config, tracker, scorer, limit, log=print):
+def score_found_jobs(config, tracker, scorer, limit, log=print, stop_after_good=None):
     """Score up to `limit` unscored jobs and save the results in the tracker.
 
     Jobs in your preferred locations are scored first, so your credits go
-    to them before anything else.
+    to them before anything else. If `stop_after_good` is set, stops as soon
+    as that many good matches are found (used by the daily "prepare" step).
     """
     min_score = config["scoring"]["min_fit_score"]
     search = config.get("search", {})
@@ -171,6 +129,8 @@ def score_found_jobs(config, tracker, scorer, limit, log=print):
     rows = sorted(rows, key=lambda r: not is_preferred_location(r["location"], preferred))
 
     for row in rows[:limit]:
+        if stop_after_good is not None and counts["good"] >= stop_after_good:
+            break
         description = fetch_missing_description(row)
         try:
             result = scorer.score(build_job_text(row, description))

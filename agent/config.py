@@ -19,6 +19,7 @@ def load_config(path=PROJECT_ROOT / "config.yaml"):
     # Turn the file paths into full paths inside the project folder.
     config["resume_path"] = PROJECT_ROOT / config["resume_path"]
     config["tracker_path"] = PROJECT_ROOT / config["tracker_path"]
+    config["output_dir"] = PROJECT_ROOT / config.get("output_dir", "output/resumes")
     return config
 
 
