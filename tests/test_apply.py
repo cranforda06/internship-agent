@@ -344,3 +344,28 @@ def test_disability_no_and_decline_wordings():
     q = Question("q", "Disability status", "combobox", options)
     assert match_sensitive(q, {"disability_status": "No, I do not have a disability"}) == options[1]
     assert match_sensitive(q, {"disability_status": "Decline to self-identify"}) == options[2]
+
+
+WORKDAY_LOOSE_RADIOS = """<html><body>
+<div data-automation-id="formField-candidateIsPreviousWorker">
+  <label>Have you previously worked for this organization?*</label>
+  <div role="radiogroup">
+    <div><input type="radio" name="r-a1" id="ra"><span>Yes</span></div>
+    <div><input type="radio" name="r-b2" id="rb"><span>No</span></div>
+  </div>
+</div></body></html>"""
+
+
+def test_workday_radios_with_unlinked_labels_and_different_names(tmp_path, browser_page):
+    from agent.apply import workday
+    form = tmp_path / "wd2.html"
+    form.write_text(WORKDAY_LOOSE_RADIOS)
+    browser_page.goto(form.as_uri())
+    questions = workday.read_page(browser_page)
+    assert len(questions) == 1                                   # one question, not two
+    q = questions[0]
+    assert q.label == "Have you previously worked for this organization?"
+    assert q.options == ["Yes", "No"]
+    left = workday.fill_page(browser_page, questions, {q.key: "No"}, None, log=lambda m: None)
+    assert left == []
+    assert browser_page.is_checked("#rb") and not browser_page.is_checked("#ra")

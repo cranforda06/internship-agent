@@ -42,8 +42,33 @@ READ_PAGE = r"""() => {
     return clean(el.getAttribute('aria-label'));
   };
   const isRequired = (el, label) => /\*/.test(label) || el.getAttribute('aria-required') === 'true' || el.required;
+  // A radio button's choice text ("Yes"/"No"). Workday doesn't always link the
+  // label the standard way, so try several places it can be.
+  const radioText = el => {
+    const t = ownLabel(el);
+    if (t) return t;
+    const wrap = el.closest('label');
+    if (wrap && textOf(wrap)) return textOf(wrap);
+    const sib = el.nextElementSibling;
+    if (sib && textOf(sib)) return textOf(sib);
+    const parent = el.parentElement;
+    if (parent && textOf(parent) && textOf(parent).length < 60) return textOf(parent);
+    return clean(el.value);
+  };
+  // Radios belong to the same question if they're in the same form field box,
+  // even when Workday gives each button a different name.
+  let groupCounter = 0;
+  const radioGroupId = el => {
+    const box = el.closest('[data-automation-id^="formField"], fieldset, [role="radiogroup"]');
+    if (box) {
+      if (!box.dataset.iaGroup) box.dataset.iaGroup = 'g' + groupCounter++;
+      return box.dataset.iaGroup;
+    }
+    return el.name || 'loose';
+  };
 
   document.querySelectorAll('[data-ia-key]').forEach(e => e.removeAttribute('data-ia-key'));
+  document.querySelectorAll('[data-ia-group]').forEach(e => e.removeAttribute('data-ia-group'));
   const out = [], radioGroups = {};
   let n = 0;
   for (const el of document.querySelectorAll('input, textarea, button[aria-haspopup="listbox"]')) {
@@ -68,17 +93,17 @@ READ_PAGE = r"""() => {
     if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type)) continue;
     if (el.getAttribute('role') === 'spinbutton') continue;   // date parts: left for you
     if (type === 'radio') {
-      const group = el.name || fieldLabel(el);
+      const group = radioGroupId(el);
       if (!radioGroups[group]) {
         const key = 'k' + n++;
-        const label = fieldLabel(el);
+        const label = fieldLabel(el) || textOf(el.closest('[role="radiogroup"]')?.previousElementSibling);
         radioGroups[group] = {key, label, kind: 'radio', options: [], required: isRequired(el, label),
                               filled: false};
         out.push(radioGroups[group]);
       }
       const g = radioGroups[group];
       el.setAttribute('data-ia-key', g.key + '-' + g.options.length);
-      g.options.push(ownLabel(el));
+      g.options.push(radioText(el));
       if (el.checked) g.filled = true;
       continue;
     }
@@ -163,7 +188,10 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
                 field.press("Enter")       # Workday's search boxes search on Enter
                 _choose_option(page, answer, timeout=5000)
             elif q.kind == "radio":
-                page.locator(f'[data-ia-key="{q.key}-{q.options.index(answer)}"]').check(force=True)
+                radio = page.locator(f'[data-ia-key="{q.key}-{q.options.index(answer)}"]')
+                radio.check(force=True)
+                if not radio.is_checked():           # Workday sometimes ignores that; click it directly
+                    radio.evaluate("el => el.click()")
             elif q.kind == "checkbox":
                 field.check(force=True)
         except Exception as e:
