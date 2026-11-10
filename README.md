@@ -20,9 +20,9 @@ python main.py go
 
 The steps also work on their own: `prepare`, `review`, `apply`.
 
-**Workday jobs:** click *Apply* → *Autofill with Resume* and sign in. Then press
-Enter in the terminal on each page to fill it, click *Next* yourself, and type
-`d` when done.
+**Workday jobs:** click *Apply* → *Autofill with Resume* and sign in. Each page
+then fills itself a moment after it loads; check it and click *Next* yourself.
+Type `d` in the terminal when you're done with the job.
 
 **Run it automatically:** `python main.py schedule --time 7:00` runs `prepare`
 every weekday and sends a notification when jobs are ready (even if your Mac was

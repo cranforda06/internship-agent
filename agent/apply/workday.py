@@ -5,9 +5,9 @@ spread over several pages. So this works side by side with you:
 
   1. You click Apply, choose "Autofill with Resume", and sign in or create
      the account yourself.
-  2. On each page, press Enter in the terminal. The agent reads that page's
-     questions, uploads your tailored resume if the page asks for it, and
-     fills in what it can from your profile.
+  2. Each page fills itself a moment after it loads: the agent reads that
+     page's questions, uploads your tailored resume if the page asks for it,
+     and fills in what it can from your profile.
   3. You check the page and click Next yourself. Repeat until the Review
      page, where YOU click Submit.
 
@@ -201,37 +201,122 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
     return left
 
 
-def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print):
-    """Walk through a Workday application with you, one page at a time."""
-    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    print("  Workday, page by page:")
-    print("   1. In the browser: click Apply, then 'Autofill with Resume', and sign in")
-    print("      (or create an account; the browser remembers it next time).")
-    print("   2. On EACH page, come back here and press Enter. The agent fills that page.")
-    print("   3. Check the page, then click Next/Continue in the browser yourself.")
-    print("   4. On the Review page, YOU click Submit. Then type d here.")
+# A short description of "which page is this": the step name Workday shows,
+# plus the labels of the visible fields. When it changes, a new page loaded.
+PAGE_SIGNATURE = r"""() => {
+  const clean = t => (t || '').replace(/\s+/g, ' ').trim();
+  const step = document.querySelector('[data-automation-id="progressBarActiveStep"], h2');
+  const labels = [...document.querySelectorAll('label, legend')]
+    .filter(l => l.offsetWidth || l.offsetHeight).map(l => clean(l.innerText)).filter(Boolean);
+  return {
+    step: step ? clean(step.innerText) : '',
+    labels,
+    password: !!document.querySelector('input[type=password]'),
+  };
+}"""
+
+
+def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resume_pdf, log):
+    """Fill fields on the current page that haven't been tried yet.
+
+    `attempted` holds the labels already handled on this page, so a field
+    you changed is never overwritten, and only newly revealed fields get filled.
+    """
+    questions = [q for q in read_page(page) if (q.kind, q.label) not in attempted]
+    if not questions:
+        return
+    attempted.update((q.kind, q.label) for q in questions)
+    answers = plan_answers(claude, model, profile, resume_text, questions)
+    left = fill_page(page, questions, answers, resume_pdf, log)
+    filled = len([q for q in questions if q.key in answers])
+    print(f"\n  ✓ filled {filled} field(s) on this page.")
+    if left:
+        print(f"  Left for you ({len(left)}):")
+        for q in left:
+            print(f"    - {q.label[:90]}")
+    print("  Check the page, then click Next in the browser.")
+
+
+def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print, poll_seconds=1.0,
+           typed=None, time_limit=None):
+    """Walk through a Workday application with you, filling each page as it loads.
+
+    `typed` and `time_limit` are only for tests (a fake keyboard and a stop time).
+    """
+    import queue
+    import threading
+    import time
+
     from agent.apply.runner import show_resume
 
-    while True:
-        choice = input("\n  [Enter] fill this page    [v] view resume    [d] done with this job\n  > ").strip().lower()
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    print("  Workday, hands-free:")
+    print("   1. In the browser: click Apply, then 'Autofill with Resume', and sign in")
+    print("      (or create an account; the browser remembers it next time).")
+    print("   2. Each application page fills itself a moment after it loads.")
+    print("      Check it, then click Next/Continue yourself.")
+    print("   3. On the Review page, YOU click Submit. Then type d here.")
+    print("  Here: [d] done with this job   [v] view resume   [Enter] re-fill this page")
+
+    # Your typing is read in the background, so the agent can keep watching
+    # the browser at the same time.
+    if typed is None:
+        typed = queue.Queue()
+
+        def read_keyboard():
+            while True:
+                try:
+                    typed.put(input().strip().lower())
+                except EOFError:
+                    typed.put("d")
+                    return
+
+        threading.Thread(target=read_keyboard, daemon=True).start()
+
+    current_page, attempted, last_seen, stable_since = None, set(), None, 0.0
+    last_filled = None   # the page state we last filled, so we don't keep re-checking it
+    started = time.time()
+    while time_limit is None or time.time() - started < time_limit:
+        try:
+            choice = typed.get_nowait()
+        except queue.Empty:
+            choice = None
         if choice == "d":
             return
         if choice == "v":
             show_resume(resume_pdf)
-            continue
+        elif choice == "":
+            attempted = set()   # Enter: try every empty field on this page again
+            last_filled = None
+
         try:
-            questions = read_page(page)
-        except Exception as e:
-            print(f"  ! Couldn't read this page ({e.__class__.__name__}). Fill it in yourself.")
+            sig = page.evaluate(PAGE_SIGNATURE)
+        except Exception:
+            time.sleep(poll_seconds)   # page is mid-navigation
             continue
-        if not questions:
-            print("  Nothing empty to fill on this page.")
-            continue
-        answers = plan_answers(claude, model, profile, resume_text, questions)
-        left = fill_page(page, questions, answers, resume_pdf, log)
-        filled = len([q for q in questions if q.key in answers])
-        print(f"  ✓ filled {filled} field(s) on this page.")
-        if left:
-            print(f"  Left for you ({len(left)}):")
-            for q in left:
-                print(f"    - {q.label[:90]}")
+
+        # Only fill real application pages: never sign-in pages, never the
+        # job posting itself, and only once the page has stopped changing.
+        on_application = "/apply" in page.url and not sig["password"] and sig["labels"]
+        fingerprint = (page.url, sig["step"], tuple(sig["labels"]))
+        if fingerprint != last_seen:
+            last_seen, stable_since = fingerprint, time.time()
+        settled = time.time() - stable_since >= 1.5
+
+        # Fill only when the page changed since we last filled it (a new page,
+        # or new fields appeared), so we're not clicking around while you work.
+        if on_application and settled and fingerprint != last_filled:
+            this_page = (page.url, sig["step"])
+            if this_page != current_page:
+                current_page, attempted = this_page, set()
+            try:
+                _fill_new_fields(page, attempted, claude, model, profile, resume_text, resume_pdf, log)
+            except Exception as e:
+                print(f"  ! Couldn't fill this page ({e.__class__.__name__}). Fill it in yourself.")
+            try:   # remember the page as it looks AFTER filling
+                after = page.evaluate(PAGE_SIGNATURE)
+                last_filled = (page.url, after["step"], tuple(after["labels"]))
+            except Exception:
+                last_filled = fingerprint
+            last_seen = last_filled
+        time.sleep(poll_seconds)

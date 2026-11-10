@@ -369,3 +369,45 @@ def test_workday_radios_with_unlinked_labels_and_different_names(tmp_path, brows
     left = workday.fill_page(browser_page, questions, {q.key: "No"}, None, log=lambda m: None)
     assert left == []
     assert browser_page.is_checked("#rb") and not browser_page.is_checked("#ra")
+
+
+class LabelClaude:
+    """Fake Claude that answers form questions by their label."""
+    def __init__(self, by_label):
+        self.by_label, self.calls = by_label, 0
+
+    def ask(self, model, system, prompt, schema, effort="low", max_tokens=16000):
+        import yaml
+        self.calls += 1
+        listing = yaml.safe_load(prompt.split("<questions>\n", 1)[1].split("</questions>")[0])
+        return {"answers": [
+            {"key": q["key"], "leave_for_student": q["question"] not in self.by_label,
+             "answer": self.by_label.get(q["question"], "")} for q in listing]}
+
+
+def test_workday_hands_free_fills_each_page_as_it_loads(tmp_path, browser_page):
+    import queue
+    from agent.apply import workday
+    folder = tmp_path / "apply"                     # Workday application URLs contain /apply
+    folder.mkdir()
+    (folder / "signin.html").write_text("""<html><body>
+      <div data-automation-id="formField-email"><label for="e">Email</label><input id="e"></div>
+      <div data-automation-id="formField-pw"><label for="p">Password</label><input id="p" type="password"></div>
+      <script>setTimeout(() => location.href = 'page1.html', 2500)</script></body></html>""")
+    (folder / "page1.html").write_text("""<html><body><h2>My Information</h2>
+      <div data-automation-id="formField-first"><label for="fn">First Name*</label><input id="fn"></div>
+      <script>
+        // Pretend you click Next once the page is filled.
+        setInterval(() => { if (document.getElementById('fn').value) location.href = 'page2.html'; }, 500);
+      </script></body></html>""")
+    (folder / "page2.html").write_text("""<html><body><h2>Application Questions</h2>
+      <div data-automation-id="formField-city"><label for="c">City*</label><input id="c"></div>
+      </body></html>""")
+
+    claude = LabelClaude({"First Name": "Pat", "City": "Richmond"})
+    workday.assist(browser_page, (folder / "signin.html").as_uri(), claude, "m", PROFILE, "", None,
+                   log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=12)
+
+    assert browser_page.url.endswith("page2.html")
+    assert browser_page.input_value("#c") == "Richmond"          # page 2 filled with no Enter pressed
+    assert claude.calls == 2                                      # once per page; sign-in page never touched
