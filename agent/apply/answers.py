@@ -47,10 +47,11 @@ SENSITIVE = [
     ("gender", re.compile(r"\bgender\b|\bsex\b", re.I)),
     ("veteran_status", re.compile(r"veteran|military|armed forces", re.I)),
     ("disability_status", re.compile(r"disabilit", re.I)),
+    ("pronouns", re.compile(r"pronoun", re.I)),
 ]
 SENSITIVE_KEYS = {key for key, _ in SENSITIVE}
 # Other personal questions with no profile answer: always left for you, never sent.
-OTHER_PERSONAL = re.compile(r"sexual orientation|transgender|pronoun|lgbt", re.I)
+OTHER_PERSONAL = re.compile(r"sexual orientation|transgender|lgbt", re.I)
 
 DECLINE_WORDS = re.compile(r"decline|prefer not|don.?t wish|do not wish|choose not|not to (answer|disclose|say)", re.I)
 

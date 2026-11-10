@@ -308,3 +308,12 @@ def test_done_button_stops_review_page(tmp_path):
     client.post("/done", data={"token": review.TOKEN})
     assert app.config["DONE"] is True
     t.close()
+
+
+def test_pronouns_matched_locally_and_never_sent():
+    profile = dict(PROFILE, pronouns="he/him")
+    q = Question("q_pron", "Pronouns", "combobox", ["she/her", "he/him", "they/them", "Prefer not to say"])
+    claude = RecordingClaude()
+    answers = plan_answers(claude, "claude-opus-5-5", profile, "resume", [q, Question("y", "Graduation year", "text")])
+    assert answers["q_pron"] == "he/him"
+    assert "he/him" not in claude.sent and "Pronouns" not in claude.sent

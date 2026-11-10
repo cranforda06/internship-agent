@@ -54,6 +54,25 @@ previously_employed_by_company: ""   # usually No
 needs_accommodations: ""             # Yes / No
 needs_housing: ""                    # Yes / No / Unsure
 
+# --- More answers that forms often ask (fill in what applies) ---
+preferred_name: ""                   # if you go by a different first name
+address_line_1: ""                   # street address (some Workday forms require it)
+address_line_2: ""                   # apt / unit, if any
+phone_type: ""                       # e.g. Mobile
+phone_country_code: ""               # e.g. United States of America (+1)
+us_citizen: ""                       # Yes / No
+security_clearance: ""               # e.g. None, Secret, Top Secret
+willing_to_obtain_clearance: ""      # Yes / No
+education_start_date: ""             # e.g. August 2024
+degree_type: ""                      # e.g. Bachelor's Degree
+class_standing_summer_2027: ""       # e.g. Senior (your year during the internship)
+available_hours_per_week: ""         # e.g. 40
+internship_end_date: ""              # e.g. August 2027
+willing_to_travel: ""                # Yes / No, or e.g. Up to 25%
+work_setting_preference: ""          # e.g. Open to on-site, hybrid, or remote
+have_drivers_license: ""             # Yes / No
+languages: ""                        # e.g. English (fluent), Spanish (conversational)
+
 # --- Voluntary self-identification (optional) ---
 # PRIVATE: these answers never leave your computer. They are matched to each
 # form's options by code on your Mac, and are never sent to Claude.
@@ -65,6 +84,7 @@ race_ethnicity: ""
 hispanic_or_latino: ""
 veteran_status: ""
 disability_status: ""
+pronouns: ""
 """
 
 
