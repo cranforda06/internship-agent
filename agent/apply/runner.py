@@ -85,11 +85,35 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
     counts = {"submitted": 0, "later": 0, "skipped": 0}
 
     with sync_playwright() as p:
-        browser = p.chromium.launch_persistent_context(
-            str(BROWSER_PROFILE), headless=False, viewport={"width": 1280, "height": 900},
-        )
-        page = browser.pages[0] if browser.pages else browser.new_page()
+        state = {"browser": None, "page": None}
+
+        def open_browser():
+            state["browser"] = p.chromium.launch_persistent_context(
+                str(BROWSER_PROFILE), headless=False, viewport={"width": 1280, "height": 900},
+            )
+            pages = state["browser"].pages
+            state["page"] = pages[0] if pages else state["browser"].new_page()
+
+        def ready_page():
+            """A usable page. If you closed the tab or the whole browser window,
+            open a new one instead of failing on every job after it."""
+            page = state["page"]
+            if page is not None and not page.is_closed():
+                return page
+            try:
+                state["page"] = state["browser"].new_page()        # tab closed: new tab
+            except Exception:
+                print("  (The browser was closed. Opening it again...)")
+                try:
+                    state["browser"].close()
+                except Exception:
+                    pass
+                open_browser()                                        # window closed: new window
+            return state["page"]
+
+        open_browser()
         for n, row in enumerate(reversed(rows), start=1):  # oldest approval first
+            page = ready_page()
             report = json.loads(row["tailor_report"] or "{}")
             pdf = report.get("pdf")
             print(f"\n[{n}/{len(rows)}] {row['company']} - {row['role']}")
@@ -125,7 +149,11 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
                     print("  browser: apply there, and upload the resume file shown above.")
             except Exception as e:
                 print(f"  ! Couldn't fill this form automatically ({e.__class__.__name__}).")
-                print("  The page is open: you can still fill it in yourself.")
+                if "Closed" in e.__class__.__name__:
+                    print("  The browser window was closed. Type n to keep this job for later;")
+                    print("  a new window opens for the next job.")
+                else:
+                    print("  The page is open: you can still fill it in yourself.")
 
             print("  Check every field, then click Submit in the browser yourself.")
             choice = _ask_outcome(pdf)
@@ -140,5 +168,8 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
             else:
                 counts["later"] += len(rows) - n + 1
                 break
-        browser.close()
+        try:
+            state["browser"].close()
+        except Exception:
+            pass   # already closed by you
     return counts
