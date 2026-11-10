@@ -10,6 +10,7 @@ import time
 from collections import Counter
 
 from agent.filters import JobFilter
+from agent.jobs import Job
 from agent.sources import greenhouse, lever, simplify
 from agent.sources.descriptions import fetch_description, site_name
 from agent.tracker import DuplicateError
@@ -41,25 +42,65 @@ def gather_jobs(config, log=print):
     return jobs
 
 
+def refilter_unscored(tracker, job_filter):
+    """Re-check found-but-unscored jobs against the current filters.
+
+    If you change the keywords in config.yaml, jobs found under the old
+    rules are re-checked, so you don't pay to score ones you now rule out.
+    Returns how many were marked skipped.
+    """
+    skipped = 0
+    for row in tracker.unscored(limit=None):
+        job = Job(row["company"], row["role"], row["link"] or "", row["location"] or "",
+                  row["source"] or "")
+        reason = job_filter.reason_to_drop(job)
+        if reason:
+            note = f"Filtered out after a settings change: {reason}"
+        else:
+            past = tracker.similar_application(row["company"], row["role"])
+            note = f"Probably the same job you applied to: {past['role']}" if past else None
+        if note:
+            tracker.update_status(row["id"], "skipped")
+            _set_note(tracker, row["id"], note)
+            skipped += 1
+    return skipped
+
+
+def _set_note(tracker, app_id, note):
+    with tracker.conn:
+        tracker.conn.execute("UPDATE applications SET notes = ? WHERE id = ?", (note, app_id))
+
+
 def find_new_jobs(config, tracker, log=print):
     """Run the whole find step. Returns a Counter summarizing what happened."""
-    log("Downloading listings...")
-    jobs = gather_jobs(config, log)
-
     job_filter = JobFilter(config["search"], config["target_term"])
     results = Counter()
+    refiltered = refilter_unscored(tracker, job_filter)
+    if refiltered:
+        results["earlier finds now skipped (filters or similar to a past application)"] = refiltered
+
+    log("Downloading listings...")
+    jobs = gather_jobs(config, log)
     for job in jobs:
         reason = job_filter.reason_to_drop(job)
         if reason:
             results[f"dropped: {reason}"] += 1
             continue
+        past = tracker.similar_application(job.company, job.title)
         try:
-            tracker.add(
-                job.company, job.title, link=job.url, status="found",
+            app_id = tracker.add(
+                job.company, job.title, link=job.url,
+                # Saved as skipped (not found) if it looks like a past application,
+                # so it's never scored and never rediscovered.
+                status="skipped" if past else "found",
                 location=job.location, source=job.source,
                 description=job.description or None, posted=job.posted or None,
             )
-            results["new"] += 1
+            if past:
+                _set_note(tracker, app_id, f"Probably the same job you applied to: {past['role']}")
+                results["probably already applied (similar title)"] += 1
+            else:
+                results["new"] += 1
         except DuplicateError as e:
             # Already tracked. Often the same job listed on Simplify AND
             # the company's own board, or something you applied to before.

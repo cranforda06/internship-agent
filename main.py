@@ -174,20 +174,32 @@ def _warning_for(tracker, row):
     return f"⚠ already applied at {row['company']}: {roles}"
 
 
-def cmd_jobs(tracker, args):
+def cmd_jobs(config, tracker, args):
+    from agent.filters import adjusted_score, is_preferred_location
+
+    search = config["search"]
+    preferred = search.get("preferred_locations", [])
     rows = tracker.scored_matches()
     if not rows:
         print("No scored matches yet. Run 'python main.py find' then 'python main.py score'.")
         return 0
-    print(f"{'#':<5} {'Fit':<4} {'Company':<24} {'Role':<44} {'Location':<20}")
-    print("-" * 100)
+    # Best first, counting the bonus for Richmond/DC.
+    rows = sorted(rows, key=lambda r: -adjusted_score(r["fit_score"], r["location"], search))
+
+    print(f"{'#':<5} {'Rank':<5} {'Fit':<4} {'Company':<24} {'Role':<42} {'Location':<20}")
+    print("-" * 104)
     for r in rows:
-        print(f"{r['id']:<5} {r['fit_score']:<4} {r['company'][:24]:<24} {r['role'][:44]:<44} "
-              f"{(r['location'] or '')[:20]:<20}")
+        star = "★" if is_preferred_location(r["location"], preferred) else " "
+        rank = adjusted_score(r["fit_score"], r["location"], search)
+        print(f"{r['id']:<5} {rank:<3}{star}  {r['fit_score']:<4} {r['company'][:24]:<24} "
+              f"{r['role'][:42]:<42} {(r['location'] or '')[:20]:<20}")
         warning = _warning_for(tracker, r)
         if warning:
             print(f"      {warning}")
-    print(f"\n{len(rows)} match(es). Details: python main.py show <#>")
+    bonus = search.get("preferred_location_bonus", 0)
+    print(f"\n{len(rows)} match(es). Fit = skills match from Claude. "
+          f"Rank = Fit + {bonus} if ★ (Richmond/DC area).")
+    print("Details for one job: python main.py show 123   (use the number in the # column)")
     return 0
 
 
@@ -280,8 +292,10 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
+        if args.command == "jobs":
+            return cmd_jobs(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
-                    "status": cmd_status, "jobs": cmd_jobs, "show": cmd_show}
+                    "status": cmd_status, "show": cmd_show}
         return commands[args.command](tracker, args)
     finally:
         tracker.close()

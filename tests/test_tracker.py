@@ -52,7 +52,7 @@ def test_greenhouse_job_ids_are_kept_but_tracking_is_dropped():
 
 def test_role_cleanup():
     assert normalize_role("IT Intern, Summer 2027") == "it"
-    assert normalize_role("Systems Analyst Internship") == "systems analyst"
+    assert normalize_role("Systems Analyst Internship") == "analyst systems"  # sorted
 
 
 def test_find_existing_returns_none_for_new_job(tracker):
@@ -112,3 +112,30 @@ def test_keys_refresh_when_tracker_reopens(tmp_path):
     t = Tracker(db)  # reopening recomputes the keys
     assert t.find_existing("Acme", "Data Analyst Intern") is not None
     t.close()
+
+
+def test_word_order_does_not_matter():
+    assert normalize_role("Business Intelligence Analyst Summer Associate Intern") == \
+           normalize_role("Summer Associate Internship (Business Intelligence Analyst) - 32354")
+
+
+def test_similar_application_and_company_prefix(tmp_path):
+    t = Tracker(tmp_path / "t.db")
+    t.add("Navy Federal Credit Union", "Summer Associate Internship (Business Systems Analyst) - 32314")
+    t.add("VCU Health", "R42650 Student Intern - IT", status="rejected")
+    # Shorter company name + shorter title -> probably the same job.
+    assert t.similar_application("Navy Federal", "Business Systems Analyst Intern") is not None
+    # Different job at the same company -> not flagged.
+    assert t.similar_application("Navy Federal", "Credit Risk Analyst Intern") is None
+    # A one-word title is too vague to call a match.
+    assert t.similar_application("Navy Federal", "Analyst Intern") is None
+    # A different company that shares a word -> not flagged.
+    assert t.similar_application("Federal Reserve", "Business Systems Analyst Intern") is None
+    t.close()
+
+
+def test_same_company():
+    from agent.tracker import normalize_company, same_company
+    assert same_company(normalize_company("Navy Federal"), normalize_company("Navy Federal Credit Union"))
+    assert same_company(normalize_company("The Boeing Company"), normalize_company("Boeing"))
+    assert not same_company(normalize_company("Federal Reserve Bank"), normalize_company("Navy Federal"))

@@ -10,6 +10,7 @@ from datetime import date
 
 import anthropic
 
+from agent.filters import adjusted_score, is_preferred_location
 from agent.sources.descriptions import fetch_description
 
 # Price per million tokens (input, output) in US dollars, used to show what
@@ -35,8 +36,22 @@ SCORE_SCHEMA = {
 
 SYSTEM_PROMPT = """You evaluate how well an internship fits a specific student, \
 based only on their resume. The student is an undergraduate Information \
-Systems major looking for business analyst, systems analyst, IT, and data \
-internships.
+Systems major.
+
+What the student wants, in order of preference:
+1. Business analyst and systems analyst roles: requirements gathering, \
+process mapping, documentation, bridging business users and IT.
+2. Information-systems-side technology roles that aren't heavy on coding: \
+business systems, ERP/CRM implementation and support, IT project or product \
+coordination, technology consulting, IT audit/risk/governance, IT operations.
+3. Data analyst / reporting roles (Excel, SQL, dashboards): acceptable, but \
+a step below 1 and 2.
+Roles centered on software development, data science/machine learning, or \
+heavy programming are a poor fit even if the title sounds related. Let the \
+role's actual day-to-day duties drive the score, not its title.
+
+Do NOT factor location or relocation into the score. The student is willing \
+to relocate, and location preferences are handled separately.
 
 Score from 0 to 100:
 - 85-100: the role's core duties line up directly with the student's \
@@ -141,11 +156,21 @@ class Scorer:
 
 
 def score_found_jobs(config, tracker, scorer, limit, log=print):
-    """Score up to `limit` unscored jobs and save the results in the tracker."""
+    """Score up to `limit` unscored jobs and save the results in the tracker.
+
+    Jobs in your preferred locations are scored first, so your credits go
+    to them before anything else.
+    """
     min_score = config["scoring"]["min_fit_score"]
+    search = config.get("search", {})
+    preferred = search.get("preferred_locations", [])
     counts = {"good": 0, "skipped": 0, "errors": 0}
 
-    for row in tracker.unscored(limit):
+    rows = tracker.unscored()
+    # sorted() keeps the existing order (newest first) within each group.
+    rows = sorted(rows, key=lambda r: not is_preferred_location(r["location"], preferred))
+
+    for row in rows[:limit]:
         description = fetch_missing_description(row)
         try:
             result = scorer.score(build_job_text(row, description))
@@ -156,7 +181,9 @@ def score_found_jobs(config, tracker, scorer, limit, log=print):
         # anthropic.APIError (bad key, no credits, network) is NOT caught
         # here on purpose: it would fail the same way for every job, so we stop.
 
-        good = result["score"] >= min_score
+        # The location bonus counts toward the minimum, so a Richmond or DC
+        # job just under the line still makes your list.
+        good = adjusted_score(result["score"], row["location"], search) >= min_score
         result["had_description"] = bool(description)
         tracker.update_details(
             row["id"],
@@ -169,5 +196,6 @@ def score_found_jobs(config, tracker, scorer, limit, log=print):
             tracker.update_status(row["id"], "skipped")
         counts["good" if good else "skipped"] += 1
         mark = "✓" if good else "·"
-        log(f"  {mark} {result['score']:3}  {row['company'][:28]} - {row['role'][:50]}")
+        star = "★" if is_preferred_location(row["location"], preferred) else " "
+        log(f"  {mark} {result['score']:3} {star} {row['company'][:28]} - {row['role'][:50]}")
     return counts

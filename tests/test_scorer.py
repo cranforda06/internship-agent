@@ -71,3 +71,17 @@ def test_company_warning_finds_past_applications(tmp_path):
     new = t.add("Elmington", "Business Analyst Intern", status="found")
     assert len(t.applied_at_company("Elmington", exclude_id=new)) == 1
     t.close()
+
+
+def test_preferred_locations_scored_first_and_bonus_counts(tmp_path):
+    t = Tracker(tmp_path / "t.db")
+    far = t.add("Acme", "IT Intern", status="found", description="x", location="Austin, TX", posted="2026-11-05")
+    near = t.add("Globex", "IT Intern", status="found", description="x", location="Richmond, VA", posted="2026-11-01")
+    config = {"scoring": {"min_fit_score": 65},
+              "search": {"preferred_locations": ["Richmond"], "preferred_location_bonus": 10}}
+    # Only 1 job allowed: the Richmond one goes first even though it's older.
+    # It scores 60, but 60 + 10 bonus = 70 passes the minimum of 65.
+    score_found_jobs(config, t, make_scorer([answer(60)]), limit=1, log=lambda m: None)
+    assert t.get(near)["fit_score"] == 60 and t.get(near)["status"] == "found"
+    assert t.get(far)["fit_score"] is None
+    t.close()

@@ -85,9 +85,22 @@ def _clean_words(text):
 
 def normalize_company(company):
     words = _clean_words(company)
+    if words and words[0] == "the":
+        words = words[1:]
     while words and words[-1] in COMPANY_SUFFIXES:
         words.pop()
     return " ".join(words)
+
+
+def same_company(key_a, key_b):
+    """Looser company match: one name starts with the other, word by word.
+
+    "navy federal" matches "navy federal credit union". Used for warnings
+    and "probably already applied" checks, not for exact duplicates.
+    """
+    a, b = key_a.split(), key_b.split()
+    shorter, longer = sorted([a, b], key=len)
+    return bool(shorter) and longer[:len(shorter)] == shorter
 
 
 def normalize_role(role):
@@ -98,8 +111,10 @@ def normalize_role(role):
     # (13375)) and years (2027). Job boards often leave these out of the
     # title, so keeping them would stop the same job from matching.
     text = " ".join(chunk for chunk in text.split() if not re.search(r"\d", chunk))
-    words = [w for w in _clean_words(text) if w not in ROLE_NOISE_WORDS]
-    return " ".join(words)
+    words = {w for w in _clean_words(text) if w not in ROLE_NOISE_WORDS}
+    # Sorted, so word order doesn't matter: "BI Analyst Summer Associate"
+    # and "Summer Associate (BI Analyst)" give the same key.
+    return " ".join(sorted(words))
 
 
 def normalize_link(link):
@@ -262,11 +277,14 @@ class Tracker:
     def get(self, app_id):
         return self.conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
 
-    def unscored(self, limit):
-        """Found jobs that haven't been scored yet, newest postings first."""
+    def unscored(self, limit=None):
+        """Found jobs that haven't been scored yet, newest postings first.
+
+        limit=None returns all of them.
+        """
         return self.conn.execute(
             "SELECT * FROM applications WHERE status = 'found' AND fit_score IS NULL "
-            "ORDER BY posted DESC, id DESC LIMIT ?", (limit,)
+            "ORDER BY posted DESC, id DESC LIMIT ?", (-1 if limit is None else limit,)
         ).fetchall()
 
     def missing_descriptions(self):
@@ -291,17 +309,35 @@ class Tracker:
             "ORDER BY fit_score DESC, id"
         ).fetchall()
 
+    def similar_application(self, company, role):
+        """Return a past application at this company whose title is probably
+        the same job, or None.
+
+        "Probably the same" = every word of the shorter title appears in the
+        longer one, and the shorter one has at least 2 words. For example
+        "Business Systems Analyst Intern" vs. "Summer Associate Internship
+        (Business Systems Analyst)". Only checks jobs you actually applied to.
+        """
+        new_words = set(normalize_role(role).split())
+        for past in self.applied_at_company(company):
+            past_words = set(past["role_key"].split())
+            shorter, longer = sorted([new_words, past_words], key=len)
+            if len(shorter) >= 2 and shorter <= longer:
+                return past
+        return None
+
     def applied_at_company(self, company, exclude_id=None):
         """Jobs you've applied to at this company (any role).
 
         Used to warn you, e.g. if a past application's role was unknown.
         """
         placeholders = ", ".join("?" for _ in APPLIED_STATUSES)
-        return self.conn.execute(
-            f"SELECT * FROM applications WHERE company_key = ? AND id != ? "
-            f"AND status IN ({placeholders})",
-            (normalize_company(company), exclude_id or -1, *sorted(APPLIED_STATUSES)),
+        rows = self.conn.execute(
+            f"SELECT * FROM applications WHERE id != ? AND status IN ({placeholders})",
+            (exclude_id or -1, *sorted(APPLIED_STATUSES)),
         ).fetchall()
+        key = normalize_company(company)
+        return [r for r in rows if same_company(r["company_key"], key)]
 
     def update_status(self, app_id, status):
         """Change a job's status, e.g. from 'applied' to 'interview'."""

@@ -89,3 +89,35 @@ def test_description_url_patterns():
     assert greenhouse.URL_PATTERN.search("https://job-boards.greenhouse.io/appian/jobs/123").groups() == ("appian", "123")
     uid = "6ed76ce8-4156-4b60-b120-403538bd66cd"
     assert lever.URL_PATTERN.search(f"https://jobs.lever.co/palantir/{uid}").groups() == ("palantir", uid)
+
+
+def test_preferred_locations_and_bonus():
+    from agent.filters import adjusted_score, is_preferred_location
+    search = load_config()["search"]
+    prefs = search["preferred_locations"]
+    assert is_preferred_location("Richmond, VA", prefs)
+    assert is_preferred_location("Arlington County, Arlington, VA", prefs)
+    assert is_preferred_location("New York, NY; Washington, DC", prefs)
+    assert not is_preferred_location("Seattle, WA", prefs)   # Washington state isn't DC
+    assert adjusted_score(70, "McLean, VA", search) == 80
+    assert adjusted_score(70, "Austin, TX", search) == 70
+    assert adjusted_score(95, "Richmond, VA", search) == 100  # capped
+
+
+def test_data_science_now_excluded_but_business_systems_kept():
+    f = make_filter()
+    assert f.reason_to_drop(job("Data Science Intern")) == "excluded keyword"
+    assert f.reason_to_drop(job("ERP Implementation Intern")) is None
+    assert f.reason_to_drop(job("IT Audit Intern")) is None
+
+
+def test_refilter_skips_found_jobs_that_no_longer_pass(tmp_path):
+    from agent.finder import refilter_unscored
+    from agent.tracker import Tracker
+    t = Tracker(tmp_path / "t.db")
+    keep = t.add("Acme", "Business Analyst Intern", status="found", location="Richmond, VA")
+    drop = t.add("Acme", "Data Science Intern", status="found", location="Richmond, VA")
+    assert refilter_unscored(t, make_filter()) == 1
+    assert t.get(keep)["status"] == "found"
+    assert t.get(drop)["status"] == "skipped"
+    t.close()

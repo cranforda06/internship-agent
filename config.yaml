@@ -11,29 +11,52 @@ target_term: Summer 2027
 search:
   # A job title must contain at least one of these (whole words, any case)...
   include_keywords:
+    # Your core targets
     - business analyst
     - business analysis
     - business systems
+    - systems analyst
+    - systems analysis
+    - information systems
+    - information technology
+    - IT
+    - technology
     - business technology
     - business and technology
-    - systems analyst
+    - ERP
+    - SAP
+    - Oracle
+    - Salesforce
+    - CRM
+    - implementation
+    - solutions
+    - digital
+    - transformation
+    - process improvement
+    - process
+    - product owner
+    - project management
+    - project manager
+    - program management
+    - PMO
+    - technology consulting
+    - consultant
+    - consulting
+    - IT audit
+    - technology risk
+    - governance
+    - cybersecurity
+    - deployment strategist
+    # Also OK (scored a bit lower than the core targets)
     - data analyst
     - data analytics
     - business analytics
     - analytics
     - business intelligence
-    - information technology
-    - information systems
-    - IT
-    - technology
-    - ERP
     - data
     - analyst
-    - consultant
-    - consulting
     - strategy
     - operations
-    - deployment strategist
 
   # ...and none of these. These are roles that need a different background
   # (CS, engineering, PhD research, quant finance).
@@ -64,9 +87,47 @@ search:
     - master's
     - masters
     - graduate
+    - data science
+    - data scientist
 
   # Skip internships located only outside the US.
   us_only: true
+
+  # You'll relocate, but these areas come first: they get a star, a score
+  # bonus, and are scored before other jobs. Matched anywhere in the location.
+  preferred_locations:
+    # Richmond area
+    - Richmond
+    - Glen Allen
+    - Henrico
+    - Midlothian
+    - Chesterfield
+    - Mechanicsville
+    - Short Pump
+    # DC area
+    - Washington, DC
+    - Washington DC
+    - Washington, D.C.
+    - Arlington
+    - Alexandria
+    - McLean
+    - Tysons
+    - Reston
+    - Herndon
+    - Fairfax
+    - Chantilly
+    - Vienna
+    - Falls Church
+    - Ashburn
+    - Sterling
+    - Springfield, VA
+    - Bethesda
+    - Rockville
+    - Silver Spring
+    - Gaithersburg
+    - Annapolis Junction
+    - Fort Meade
+  preferred_location_bonus: 10
 
 # Company job boards to check directly, besides the SimplifyJobs list.
 # The name is the part after greenhouse.io/ or jobs.lever.co/ in a job link.

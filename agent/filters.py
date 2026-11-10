@@ -67,6 +67,22 @@ def is_right_term(title, term):
     return not (mentions_other and season not in lowered)
 
 
+def is_preferred_location(location, preferred):
+    """True if the location mentions any of your preferred places."""
+    lowered = (location or "").lower()
+    return any(place.lower() in lowered for place in preferred)
+
+
+def adjusted_score(fit_score, location, search_config):
+    """Fit score plus the bonus for a preferred location (capped at 100)."""
+    if fit_score is None:
+        return None
+    bonus = 0
+    if is_preferred_location(location, search_config.get("preferred_locations", [])):
+        bonus = search_config.get("preferred_location_bonus", 0)
+    return min(100, fit_score + bonus)
+
+
 class JobFilter:
     """Applies all the filters, using the settings from config.yaml."""
 
