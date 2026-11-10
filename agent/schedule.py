@@ -1,0 +1,116 @@
+"""Run "prepare" automatically every day, and notify you when it's done.
+
+Uses launchd, the scheduler built into macOS (the same thing macOS uses for
+its own background tasks). It's set up as a "launch agent" for your user
+account only:
+    ~/Library/LaunchAgents/com.internship-agent.prepare.plist
+If your Mac is asleep at the scheduled time, macOS runs it when it wakes up.
+
+Turn it on:   python main.py schedule --time 7:00
+Turn it off:  python main.py schedule --off
+Check it:     python main.py schedule
+"""
+
+import os
+import plistlib
+import subprocess
+import sys
+from pathlib import Path
+
+from agent.config import PROJECT_ROOT
+
+LABEL = "com.internship-agent.prepare"
+PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+LOG_PATH = PROJECT_ROOT / "data" / "logs" / "daily-prepare.log"
+
+
+def parse_time(text):
+    """'7:00', '07:30', '7am', '6:45pm' -> (hour, minute) in 24-hour time."""
+    t = text.strip().lower().replace(" ", "")
+    suffix = t[-2:] if t.endswith(("am", "pm")) else ""
+    t = t[:-2] if suffix else t
+    hour_text, _, minute_text = t.partition(":")
+    hour, minute = int(hour_text), int(minute_text or 0)
+    if suffix == "pm" and hour != 12:
+        hour += 12
+    if suffix == "am" and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"'{text}' isn't a valid time. Try 7:00 or 6:30pm.")
+    return hour, minute
+
+
+def project_python():
+    """The project's own Python (in venv/), which has all the packages."""
+    venv_python = PROJECT_ROOT / "venv" / "bin" / "python"
+    return str(venv_python) if venv_python.exists() else sys.executable
+
+
+def build_plist(hour, minute):
+    """The settings file macOS reads. Kept as a function so it can be tested."""
+    return {
+        "Label": LABEL,
+        # Full paths, because scheduled jobs don't see your terminal's settings.
+        "ProgramArguments": [project_python(), str(PROJECT_ROOT / "main.py"), "prepare", "--notify"],
+        "WorkingDirectory": str(PROJECT_ROOT),
+        "StartCalendarInterval": {"Hour": hour, "Minute": minute},
+        "StandardOutPath": str(LOG_PATH),
+        "StandardErrorPath": str(LOG_PATH),
+        "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+    }
+
+
+def _launchctl(*args):
+    return subprocess.run(["launchctl", *args], capture_output=True, text=True)
+
+
+def install(hour, minute):
+    if sys.platform != "darwin":
+        raise RuntimeError("Scheduling is set up for macOS only.")
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    domain = f"gui/{os.getuid()}"
+    _launchctl("bootout", f"{domain}/{LABEL}")          # remove an older version, if any
+    with open(PLIST_PATH, "wb") as f:
+        plistlib.dump(build_plist(hour, minute), f)
+    result = _launchctl("bootstrap", domain, str(PLIST_PATH))
+    if result.returncode != 0:
+        raise RuntimeError(f"macOS didn't accept the schedule: {result.stderr.strip()}")
+
+
+def uninstall():
+    _launchctl("bootout", f"gui/{os.getuid()}/{LABEL}")
+    existed = PLIST_PATH.exists()
+    PLIST_PATH.unlink(missing_ok=True)
+    return existed
+
+
+def current_time():
+    """(hour, minute) of the installed schedule, or None if it's off."""
+    if not PLIST_PATH.exists():
+        return None
+    with open(PLIST_PATH, "rb") as f:
+        interval = plistlib.load(f).get("StartCalendarInterval", {})
+    return interval.get("Hour", 0), interval.get("Minute", 0)
+
+
+def last_log_lines(n=15):
+    if not LOG_PATH.exists():
+        return []
+    return LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()[-n:]
+
+
+def notify(title, message):
+    """Show a macOS notification. Does nothing on other systems."""
+    if sys.platform != "darwin":
+        return
+    def quote(s):
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    subprocess.run(["osascript", "-e",
+                    f"display notification {quote(message)} with title {quote(title)} sound name \"Glass\""],
+                   check=False, capture_output=True)
+
+
+def format_time(hour, minute):
+    suffix = "am" if hour < 12 else "pm"
+    return f"{(hour % 12) or 12}:{minute:02d} {suffix}"

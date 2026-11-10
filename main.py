@@ -19,6 +19,7 @@ Examples:
     python main.py tailor 42            # tailor your resume for one job
     python main.py review               # approve/edit/skip on a page in your browser
     python main.py apply                # fill in approved applications (you click Submit)
+    python main.py schedule --time 7:00 # run 'prepare' automatically every day
 """
 
 import argparse
@@ -226,8 +227,30 @@ def _print_report(report, folder):
 
 
 def cmd_prepare(config, tracker, args):
+    """Runs the daily routine. With --notify (used by the daily schedule) it
+    also shows a macOS notification saying how it went."""
+    from datetime import datetime
+
+    if not args.notify:
+        return _prepare(config, tracker, args)[0]
+
+    from agent.schedule import notify
+
+    print(f"\n===== Scheduled run: {datetime.now():%Y-%m-%d %H:%M} =====")
+    try:
+        code, message = _prepare(config, tracker, args)
+    except Exception as e:  # anything unexpected: tell the user instead of failing silently
+        code, message = 1, f"Something went wrong ({e.__class__.__name__}). See data/logs/daily-prepare.log"
+        print(f"ERROR: {e!r}")
+    notify("Internship agent" if code == 0 else "Internship agent: problem", message)
+    return code
+
+
+def _prepare(config, tracker, args):
     """The daily routine: find new jobs, score until there are enough good
-    matches, then tailor resumes for the best ones."""
+    matches, then tailor resumes for the best ones.
+
+    Returns (exit code, one-line summary for a notification)."""
     from agent.scorer import Scorer, score_found_jobs
     from agent.tailor import tailor_queue
 
@@ -237,14 +260,14 @@ def cmd_prepare(config, tracker, args):
     if need <= 0:
         print(f"Your queue already has {queued} job(s) waiting for review. "
               f"Review those first: python main.py review")
-        return 0
+        return 0, f"{queued} jobs from before are still waiting. Run: python main.py review"
 
     if not args.no_find:
         print("Step 1/3: Finding new internships...")
         cmd_find(config, tracker, args)
     setup = _setup_claude(config)
     if not setup:
-        return 1
+        return 1, "Couldn't start: check your API key in .env and data/resume.md."
     claude, resume_text = setup
 
     def work():
@@ -262,9 +285,46 @@ def cmd_prepare(config, tracker, args):
 
     done = _run_with_api(claude, work)
     if done is None:
-        return 1
+        return 1, "The Anthropic API returned an error (out of credit or offline?). See the log."
     print(f"{done} new job(s) tailored. Your queue: {queued + done} waiting for review.")
     print("See them: python main.py queue")
+    cost = f" (cost ${claude.cost_so_far:.2f})"
+    if done == 0:
+        return 0, "No new good matches today." + cost
+    return 0, f"{queued + done} tailored internships ready. Run: python main.py review" + cost
+
+
+def cmd_schedule(config, tracker, args):
+    from agent import schedule
+
+    if args.off:
+        removed = schedule.uninstall()
+        print("Daily schedule turned off." if removed else "There was no daily schedule to turn off.")
+        return 0
+    if args.time:
+        try:
+            hour, minute = schedule.parse_time(args.time)
+            schedule.install(hour, minute)
+        except (ValueError, RuntimeError) as e:
+            print(e)
+            return 1
+        when = schedule.format_time(hour, minute)
+        print(f"✓ Daily schedule on: 'prepare' runs every day at {when}.")
+        print("  If your Mac is asleep then, it runs when it wakes up.")
+        print("  You'll get a notification when your jobs are ready.")
+        print(f"  Log: {schedule.LOG_PATH}")
+        print("  Turn off anytime: python main.py schedule --off")
+        return 0
+    current = schedule.current_time()
+    if current is None:
+        print("Daily schedule is OFF. Turn it on with e.g.: python main.py schedule --time 7:00")
+    else:
+        print(f"Daily schedule is ON: every day at {schedule.format_time(*current)}.")
+    lines = schedule.last_log_lines()
+    if lines:
+        print("\nLast run's log:")
+        for line in lines:
+            print(f"  {line}")
     return 0
 
 
@@ -450,6 +510,11 @@ def build_parser():
     p = sub.add_parser("prepare", help="Daily routine: find, score, and tailor your top matches")
     p.add_argument("--count", type=int, help="How many to prepare (default from config.yaml)")
     p.add_argument("--no-find", action="store_true", help="Skip downloading new listings")
+    p.add_argument("--notify", action="store_true", help="Show a notification when done (used by the schedule)")
+
+    p = sub.add_parser("schedule", help="Run 'prepare' automatically every day")
+    p.add_argument("--time", help="When to run, e.g. 7:00 or 6:30pm")
+    p.add_argument("--off", action="store_true", help="Turn the daily schedule off")
 
     sub.add_parser("queue", help="Show tailored jobs waiting for your review")
 
@@ -483,9 +548,10 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
-        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply"):
+        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule"):
             handler = {"jobs": cmd_jobs, "tailor": cmd_tailor, "prepare": cmd_prepare,
-                       "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply}[args.command]
+                       "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply,
+                       "schedule": cmd_schedule}[args.command]
             return handler(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
                     "status": cmd_status, "show": cmd_show}
