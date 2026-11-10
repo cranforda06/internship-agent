@@ -79,7 +79,7 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
         rows = [r for r in rows if r["id"] in only_ids]
     if not rows:
         print("No approved jobs to apply to. Approve one first: python main.py review "
-              "(or python main.py status <#> approved)")
+              "(or e.g. python main.py status 42 approved, using the job's number)")
         return {}
     settings = config.get("apply", {})
     counts = {"submitted": 0, "later": 0, "skipped": 0}

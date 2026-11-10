@@ -440,7 +440,7 @@ def cmd_queue(config, tracker, args):
         flag = "⚠ needs a look" if report.get("needs_attention") else "✓ checks passed"
         print(f"#{r['id']:<5} fit {r['fit_score']:<3} {flag:16} {r['company'][:26]} - {r['role'][:44]}")
         print(f"       {age_text(r['posted'])} · {r['tailored_dir']}")
-    print(f"\n{len(rows)} waiting. Full details for one: python main.py show <#>")
+    print(f"\n{len(rows)} waiting. Full details for one, e.g.: python main.py show {rows[0]['id']}")
     return 0
 
 
@@ -537,7 +537,8 @@ def cmd_today(config, tracker, args):
         print("  none")
     print("\nStatus: found = waiting · queued = needs your review · approved = ready to apply · "
           "skipped = below your minimum or filtered out")
-    print("Details for one job: python main.py show <#>")
+    example = (scored or found or tailored or [{"id": 42}])[0]["id"]
+    print(f"Details for one job, e.g.: python main.py show {example}   (use the number after #)")
     return 0
 
 
