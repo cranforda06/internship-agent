@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Internship agent: personal data (resume, tracker) and generated files
+data/
+output/

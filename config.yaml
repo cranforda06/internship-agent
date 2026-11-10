@@ -1,0 +1,16 @@
+# Settings for the internship agent. Edit these freely.
+
+# Where your files live (relative to the project folder).
+resume_path: data/resume.md
+tracker_path: data/applications.db
+
+# The term you're applying for.
+target_term: Summer 2027
+
+# Kinds of roles you want. Used later (Phase 2) to filter listings.
+target_roles:
+  - business analyst
+  - systems analyst
+  - IT
+  - data analyst
+  - data
