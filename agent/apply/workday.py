@@ -182,10 +182,15 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     print("   2. On EACH page, come back here and press Enter. The agent fills that page.")
     print("   3. Check the page, then click Next/Continue in the browser yourself.")
     print("   4. On the Review page, YOU click Submit. Then type d here.")
+    from agent.apply.runner import show_resume
+
     while True:
-        choice = input("\n  [Enter] fill this page    [d] done with this job\n  > ").strip().lower()
+        choice = input("\n  [Enter] fill this page    [v] view resume    [d] done with this job\n  > ").strip().lower()
         if choice == "d":
             return
+        if choice == "v":
+            show_resume(resume_pdf)
+            continue
         try:
             questions = read_page(page)
         except Exception as e:

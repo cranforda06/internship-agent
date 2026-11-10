@@ -22,6 +22,23 @@ from agent.config import PROJECT_ROOT
 BROWSER_PROFILE = PROJECT_ROOT / "data" / "browser-profile"
 
 
+def show_resume(pdf):
+    """Open the tailored PDF in your normal PDF viewer (Preview on a Mac),
+    so you can read exactly what's being uploaded."""
+    import subprocess
+    import sys
+    import webbrowser
+    from pathlib import Path
+
+    if not pdf or not Path(pdf).exists():
+        print("  ! Couldn't find the resume file.")
+        return
+    if sys.platform == "darwin":
+        subprocess.run(["open", pdf], check=False)
+    else:
+        webbrowser.open(Path(pdf).as_uri())
+
+
 def site_for(url):
     if greenhouse.can_handle(url):
         return "greenhouse"
@@ -32,11 +49,13 @@ def site_for(url):
     return "other"
 
 
-def _ask_outcome():
+def _ask_outcome(pdf):
     while True:
         choice = input("\n  Did you submit it?  [y] yes, submitted   [n] not yet (keep for later)   "
-                       "[s] skip this job   [q] quit\n  > ").strip().lower()
-        if choice in ("y", "n", "s", "q"):
+                       "[s] skip this job   [q] quit   [v] view resume\n  > ").strip().lower()
+        if choice == "v":
+            show_resume(pdf)
+        elif choice in ("y", "n", "s", "q"):
             return choice
 
 
@@ -75,6 +94,10 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
             pdf = report.get("pdf")
             print(f"\n[{n}/{len(rows)}] {row['company']} - {row['role']}")
             print(f"  Resume: {pdf}")
+            if settings.get("open_resume_automatically", True):
+                show_resume(pdf)
+                print("  (Opened it in your PDF viewer so you can see exactly what's uploaded.)")
+            print("  Type v at any prompt to open the resume again.")
             past = tracker.similar_application(row["company"], row["role"])
             if past:
                 print(f"  ⚠ This looks like a job you already applied to: {past['role']} "
@@ -105,7 +128,7 @@ def apply_to_approved(config, tracker, claude, profile, resume_text, log=print, 
                 print("  The page is open: you can still fill it in yourself.")
 
             print("  Check every field, then click Submit in the browser yourself.")
-            choice = _ask_outcome()
+            choice = _ask_outcome(pdf)
             if choice == "y":
                 tracker.update_status(row["id"], "applied")
                 counts["submitted"] += 1

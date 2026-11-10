@@ -182,3 +182,6 @@ profile_path: data/profile.yaml
 apply:
   # Matches form questions to your profile answers (~$0.02 per form).
   answer_model: claude-opus-5-5
+  # Open each job's tailored resume PDF (in Preview) when its application
+  # starts, so you can see exactly what's uploaded. Type v to reopen it.
+  open_resume_automatically: true
