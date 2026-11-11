@@ -176,6 +176,8 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
                 if resume_pdf and not already and wanted:
                     field.set_input_files(resume_pdf)
                     log("  ✓ uploaded tailored resume PDF")
+                elif already:
+                    log("  ✓ your tailored resume is already attached on this page")
                 continue
             answer = answers.get(q.key)
             if answer is None:
@@ -248,6 +250,14 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
     answers = plan_answers(claude, model, profile, resume_text, questions)
     left = fill_page(page, questions, answers, resume_pdf, log)
     filled = len([q for q in questions if q.key in answers])
+    # For the apply log only: each question's name and what happened (never the answer).
+    from agent.apply import history
+    left_keys = {q.key for q in left}
+    history.write(f"  page: {page.url}")
+    for q in questions:
+        what = ("upload box" if q.kind == "file" else "LEFT for you" if q.key in left_keys
+                else "filled" if q.key in answers else "not filled (optional)")
+        history.write(f"    {what:<22} {q.kind:<9} {q.label[:80]}")
     log(f"  ✓ filled {filled} field(s) on this page.")
     if left:
         log(f"  Left for you ({len(left)}):")

@@ -447,7 +447,7 @@ def test_workday_page_that_keeps_changing_does_not_loop(tmp_path, browser_page):
     assert claude.calls <= workday.MAX_AUTO_ROUNDS        # stopped instead of looping
 
 
-def test_workday_autofill_with_resume_page_gets_the_resume(tmp_path, browser_page):
+def test_workday_autofill_with_resume_page_gets_the_resume(tmp_path, browser_page, apply_log_in_tmp):
     """The "Autofill with Resume" page is only an upload box, no other questions."""
     import queue
     from agent.apply import workday
@@ -471,3 +471,23 @@ def test_workday_autofill_with_resume_page_gets_the_resume(tmp_path, browser_pag
 
     assert browser_page.evaluate("document.querySelector('input[type=file]').files[0].name") == pdf.name
     assert claude.calls == 0                     # nothing to ask Claude on an upload-only page
+    assert "upload box" in apply_log_in_tmp.read_text()   # saved to the apply log
+
+
+def test_sites_we_dont_fill_open_in_your_normal_browser(monkeypatch, apply_log_in_tmp, tmp_path):
+    import webbrowser
+    from agent.apply import runner
+    opened = []
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+
+    class NoTouchPage:
+        def goto(self, *a, **k):
+            raise AssertionError("the agent's browser must not open this site")
+
+    t = Tracker(tmp_path / "t.db")
+    job = t.add("NBCUniversal", "Ops Intern", link="https://jobs.smartrecruiters.com/X/1", status="approved")
+    runner.fill_job(NoTouchPage(), t.get(job), t, None, {}, "", {"open_resume_automatically": False},
+                    log=lambda m: None)
+    assert opened == ["https://jobs.smartrecruiters.com/X/1"]
+    assert "NBCUniversal - Ops Intern (other)" in apply_log_in_tmp.read_text()
+    t.close()

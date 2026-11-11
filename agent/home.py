@@ -98,6 +98,9 @@ class ApplySession:
                  "<li>Each page fills itself a moment after it loads. Check it, then click <b>Next</b> yourself.</li>"
                  "<li>On the last page, <b>you</b> click <b>Submit</b>. Then click <b>I submitted it</b> here.</li></ol>"
                  if site == "workday" else
+                 "<p>This site isn't auto-filled, so it opened in <b>your normal browser</b>. Apply "
+                 "there and upload the resume (<b>View resume</b> above). Then tell the agent below.</p>"
+                 if site == "other" else
                  "<p>Check every field in the browser window, finish anything left, and click "
                  "<b>Submit</b> yourself. Then tell the agent below.</p>")
         workday_buttons = ""

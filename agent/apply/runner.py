@@ -18,7 +18,7 @@ home page (python main.py home / go), which uses fill_job() below too.
 
 import json
 
-from agent.apply import greenhouse, lever, workday
+from agent.apply import greenhouse, history, lever, workday
 from agent.apply.answers import plan_answers
 from agent.config import PROJECT_ROOT
 
@@ -111,6 +111,9 @@ def fill_job(page, row, tracker, claude, profile, resume_text, settings, log=pri
     """
     pdf = resume_pdf(row)
     model = settings.get("answer_model", "claude-opus-5-5")
+    site = site_for(row["link"])
+    history.write(f"=== #{row['id']} {row['company']} - {row['role']} ({site}) {row['link']}")
+    log = history.logged(log)   # everything shown is also saved to data/logs/apply.log
     if settings.get("open_resume_automatically", True):
         show_resume(pdf)
         log("  Opened the resume in your PDF viewer so you can see exactly what's uploaded.")
@@ -118,7 +121,6 @@ def fill_job(page, row, tracker, claude, profile, resume_text, settings, log=pri
     if past:
         log(f"  ⚠ This looks like a job you already applied to: {past['role']} "
             f"({past['status']}). Skip it unless you're sure it's different.")
-    site = site_for(row["link"])
     try:
         if site == "greenhouse":
             questions = greenhouse.get_questions(row["link"])
@@ -132,9 +134,12 @@ def fill_job(page, row, tracker, claude, profile, resume_text, settings, log=pri
             workday.assist(page, row["link"], claude, model, profile, resume_text, pdf, log,
                            typed=workday_keys)
         else:
-            page.goto(row["link"], wait_until="domcontentloaded", timeout=60000)
-            log("  This site isn't auto-filled yet. The posting is open in the browser:")
-            log("  apply there, and upload the tailored resume PDF.")
+            # Sites the agent doesn't fill: open them in YOUR normal browser.
+            # Some (like SmartRecruiters) block browsers run by a program.
+            import webbrowser
+            webbrowser.open(row["link"])
+            log("  This site isn't auto-filled. It's open in your normal browser (not the agent's")
+            log("  window): apply there yourself and upload the tailored resume PDF.")
     except Exception as e:
         log(f"  ! Couldn't fill this form automatically ({e.__class__.__name__}).")
         if "Closed" in e.__class__.__name__:
