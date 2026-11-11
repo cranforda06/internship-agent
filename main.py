@@ -91,9 +91,19 @@ def cmd_list(tracker, args):
     # Print a simple table. The :<N format pads each column to N characters.
     print(f"{'#':<4} {'Company':<22} {'Role':<36} {'Status':<10} {'Applied':<11}")
     print("-" * 86)
+    from pathlib import Path
+
+    from agent.config import PROJECT_ROOT
+
     for r in rows:
         print(f"{r['id']:<4} {r['company'][:22]:<22} {r['role'][:36]:<36} "
               f"{r['status']:<10} {r['date_applied'] or '':<11}")
+        if r["tailored_dir"]:
+            # The tailored resume used for this job (the PDF is what was uploaded).
+            folder = Path(r["tailored_dir"])
+            if folder.is_relative_to(PROJECT_ROOT):
+                folder = folder.relative_to(PROJECT_ROOT)
+            print(f"     Resume: {folder}/")
     print(f"\n{len(rows)} total")
     return 0
 
