@@ -1,10 +1,10 @@
-"""The review page: a small website that runs only on your computer.
+"""The home page's website: a small website that runs only on your computer.
 
-Open it with:  python main.py review
+Open it with:  python main.py home
 It lists the jobs whose resumes were tailored ("queued"). For each one you
 see the posting, the fit score, and your tailored resume with every change
-marked, then choose Approve, Edit, or Skip. Approved jobs are what
-"python main.py apply" fills in.
+marked, then choose Approve, Edit, or Skip. Approved jobs get an Apply
+button (see agent/home.py).
 
 It only listens on 127.0.0.1 (your own machine), so nobody else can open it.
 """
@@ -68,7 +68,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 """
 
 
-def page(title, body, heading="Internship review"):
+def page(title, body, heading="Internship agent"):
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' "
             f"content='width=device-width, initial-scale=1'><title>{html.escape(title)}</title>"
             f"<style>{STYLE}</style></head><body><header><a href='/'>{html.escape(heading)}</a>"
@@ -133,38 +133,15 @@ def marked_resume(original, tailored):
     return "".join(out), removed
 
 
-def run_until_done(config, tracker, port=5050, open_browser=True):
-    """Show the review page until you click "Done reviewing" (or press Ctrl+C)."""
-    import webbrowser
-
-    from werkzeug.serving import make_server
-
-    app = create_app(config, tracker)
-    server = make_server("127.0.0.1", port, app)   # one request at a time (see tracker note)
-    url = f"http://127.0.0.1:{port}/"
-    print(f"Review page: {url}")
-    print("Approve or skip each job, then click 'Done reviewing' at the bottom of the list.")
-    if open_browser:
-        webbrowser.open(url)
-    server.timeout = 0.5
-    try:
-        while not app.config.get("DONE"):
-            server.handle_request()
-    except KeyboardInterrupt:
-        print("\nReview page closed.")
-    finally:
-        server.server_close()
-
-
 def create_app(config, tracker, session=None):
-    """The review page. With `session` (from agent.home) it's the home page:
-    approved jobs also get an Apply button that fills the form in for you."""
+    """The home page's website: reviewing jobs (this file) plus the Apply
+    buttons (agent/home.py)."""
+    from agent.home import ApplySession, add_routes
+
     app = Flask(__name__)
     original_path = Path(config["resume_path"])
-    if session is not None:
-        from agent.home import add_routes
-
-        add_routes(app, session, tracker)
+    session = session or ApplySession()
+    add_routes(app, session, tracker)
 
     def check_token():
         if request.form.get("token") != TOKEN:
@@ -198,37 +175,16 @@ def create_app(config, tracker, session=None):
     @app.get("/")
     def index():
         queued, approved = tracker.list_all(status="queued"), tracker.list_all(status="approved")
-        if session is None:
-            cards = section("Waiting for your review", queued) + section("Approved: ready to apply", approved)
-            cards.append("<div class='card row'><span>Finished? This closes the review page and starts "
-                         "filling in your approved applications in the terminal.</span>"
-                         + form_button("/done", "Done reviewing → start applying", "approve") + "</div>")
-            return page("Internship review", "".join(cards))
-
-        if session.finished:
-            return page("Internship agent", "<div class='card'><h2>All done for today ✓</h2>"
-                        "<p>You can close this tab. The terminal shows a summary.</p></div>",
-                        heading="Internship agent")
         busy = session.busy
-        cards = [f"<div class='card now' id='now'>{session.panel_html()}</div>"]
+        cards = [f"<div class='card now'>{session.panel_html()}</div>"]
         # Oldest approval first, the same order `apply` uses.
         cards += section("Ready to apply", list(reversed(approved)),
                          lambda r: form_button(f"/apply/{r['id']}", "Apply", "approve", disabled=busy))
         cards += section("Waiting for your review", queued)
-        cards.append("<div class='card row'><span>Done for today? This closes the browser window the "
-                     "agent uses. Jobs you didn't get to stay here for next time.</span>"
+        cards.append("<div class='card row'><span>Done for today? Jobs you didn't get to stay here "
+                     "for next time.</span>"
                      + form_button("/finish", "Finish for today", "skip", disabled=busy) + "</div>")
-        from agent.home import PANEL_SCRIPT
-
-        return page("Internship agent", "".join(cards) + PANEL_SCRIPT.replace("BUSY", "true" if busy else "false"),
-                    heading="Internship agent")
-
-    @app.post("/done")
-    def done():
-        check_token()
-        app.config["DONE"] = True   # run_until_done() sees this and stops the page
-        return page("Done", "<div class='card'><h2>All set ✓</h2><p>You can close this tab. "
-                            "Go back to the terminal: your approved applications are starting.</p></div>")
+        return page("Internship agent", "".join(cards))
 
     @app.get("/job/<int:job_id>")
     def job(job_id):
@@ -257,14 +213,13 @@ def create_app(config, tracker, session=None):
         elif r["status"] == "approved":
             buttons = ("<span class='pill ok'>Approved</span> " +
                        form_button(f"/job/{job_id}/unapprove", "Move back to review", "skip"))
-            if session is not None:
-                buttons += " " + form_button(f"/apply/{job_id}", "Apply", "approve", disabled=session.busy)
+            buttons += " " + form_button(f"/apply/{job_id}", "Apply", "approve", disabled=session.busy)
 
         body = f"""
         <div class='card row'><div><h2 style='margin:0'>{esc(r['company'])} - {esc(r['role'])}</h2>
           <div class='muted' title='{esc(r['location'])}'>{esc(_short(r['location']))} · {esc(age_text(r['posted']))} · {source_pill(r)} ·
           <a href='{esc(r['link'])}' target='_blank' rel='noopener'>read the posting ↗</a>
-          <span>(just to read it: the agent fills the form when you click Apply)</span></div></div>
+          <span>(just to read it: click Apply when you're ready to apply)</span></div></div>
           <div>{buttons}</div></div>
         {"<div class='card' style='border-color:#b42318'><b>⚠ You've applied at this company before:</b><ul>" + past_html + "</ul></div>" if past else ""}
         <div class='grid'>
@@ -339,7 +294,8 @@ def create_app(config, tracker, session=None):
     @app.get("/job/<int:job_id>/pdf")
     def pdf(job_id):
         report = json.loads(get_row(job_id)["tailor_report"] or "{}")
-        return send_file(report["pdf"], mimetype="application/pdf")
+        return send_file(report["pdf"], mimetype="application/pdf",
+                         as_attachment=bool(request.args.get("download")))
 
     @app.get("/job/<int:job_id>/docx")
     def docx(job_id):

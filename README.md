@@ -1,8 +1,7 @@
 # internship-agent
 
-Finds internships that fit your resume, tailors your resume to each one, and
-fills in the applications. **You check every application and click Submit yourself.**
-It never makes up experience.
+Finds internships that fit your resume and tailors your resume to each one.
+**You fill in and submit every application yourself.** It never makes up experience.
 
 ## Every day
 
@@ -15,16 +14,13 @@ python main.py go
 then opens the **home page** in your browser:
 
 - **Waiting for your review:** *Open* a job, then *Approve* or *Skip* it.
-- **Ready to apply:** click *Apply*. The form opens in a separate window, filled in.
-  Check it, click Submit **yourself**, then click *I submitted it*, *Not yet*, or *Skip*.
+- **Ready to apply:** click *Apply*. The application opens in your browser and your
+  tailored resume pops up in Finder: drag it into the upload box. Apply and submit
+  yourself, then click *I submitted it*, *Not yet*, or *Skip*.
 - Click **Finish for today** when you're done.
 
 `python main.py home` opens the home page without getting new jobs first.
 Keep the terminal open while you work.
-
-**Workday jobs:** click *Apply* → *Autofill with Resume* and sign in. Your resume
-uploads itself. Click *Fill this page* on the home page for any questions Workday
-didn't fill, then check the page and click *Next* yourself.
 
 **Schedule:** `python main.py schedule --time 10:00` gets jobs ready every weekday
 and sends a notification. It never applies. `--off` turns it off.
@@ -52,17 +48,14 @@ Run `python main.py --help` to see every command.
 ```bash
 python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-python -m playwright install chromium
+python -m playwright install chromium   # used to make the resume PDFs
 ```
 
 1. Copy `.env.example` to `.env` and add your Anthropic API key.
 2. Put your resume in `data/resume.md`.
-3. Fill in your answers in `data/profile.yaml` (created the first time you run `python main.py go`).
-
 Other settings are in `config.yaml`.
 
 ## Privacy
 
-- Your resume, profile, tracker, and API key stay on your computer.
-- Demographic answers are never sent to Claude.
-- The agent never clicks Submit and never stores passwords.
+- Your resume, tracker, and API key stay on your computer.
+- The agent never touches your applications: you fill in and submit each one.

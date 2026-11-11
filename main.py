@@ -18,8 +18,7 @@ Examples:
     python main.py queue                # tailored jobs waiting for your review
     python main.py tailor 42            # tailor your resume for one job
     python main.py home                 # review AND apply with buttons in your browser
-    python main.py review               # approve/edit/skip on a page in your browser
-    python main.py apply                # fill in approved applications (you click Submit)
+    python main.py apply                # apply to approved jobs, answering in the terminal
     python main.py schedule --time 7:00 # run 'prepare' automatically every day
 """
 
@@ -365,14 +364,6 @@ def cmd_schedule(config, tracker, args):
     return 0
 
 
-def cmd_review(config, tracker, args):
-    from agent.review import run_until_done
-
-    run_until_done(config, tracker, port=args.port)
-    print("When you're ready, fill in the approved ones: python main.py apply")
-    return 0
-
-
 def cmd_go(config, tracker, args):
     """Everything in one command: prepare (if today's hasn't run), auto-approve,
     then open the home page to review and apply."""
@@ -401,23 +392,6 @@ def cmd_go(config, tracker, args):
     return cmd_home(config, tracker, args, auto_approved=True)
 
 
-def _apply_setup(config):
-    """Everything applying needs: Claude, your resume, and your profile.
-    Returns (claude, profile, resume_text), or None if something's missing."""
-    from agent.profile import create_template, load_profile
-
-    profile_path = config["profile_path"]
-    setup = _setup_claude(config)
-    if not setup:
-        return None
-    claude, resume_text = setup
-    if not profile_path.exists():
-        create_template(profile_path, resume_text)
-        print(f"Created {profile_path}. Fill in the blank answers there, then run this again.")
-        return None
-    return claude, load_profile(profile_path), resume_text
-
-
 def _auto_approve_quietly(config, tracker):
     from agent.approval import auto_approve
 
@@ -434,35 +408,21 @@ def _print_counts(counts):
 
 
 def cmd_home(config, tracker, args, auto_approved=False):
-    """The home page: review and apply with buttons."""
+    """The home page: review jobs and apply with buttons. Free (no AI)."""
     from agent.home import run_home
 
-    setup = _apply_setup(config)
-    if not setup:
-        return 1
-    claude, profile, resume_text = setup
     if not auto_approved:
         _auto_approve_quietly(config, tracker)
-    counts = _run_with_api(claude, lambda: run_home(
-        config, tracker, claude, profile, resume_text, port=args.port))
-    _print_counts(counts)
+    _print_counts(run_home(config, tracker, port=args.port))
     return 0
 
 
 def cmd_apply(config, tracker, args):
     """Apply in the terminal (the home page does the same with buttons)."""
-    from agent.apply.runner import apply_to_approved
+    from agent.apply import apply_in_terminal
 
-    setup = _apply_setup(config)
-    if not setup:
-        return 1
-    claude, profile, resume_text = setup
     _auto_approve_quietly(config, tracker)
-    print("Opening a browser. For each approved job the agent fills in what it can,")
-    print("then waits for YOU to check everything and click Submit.")
-    counts = _run_with_api(claude, lambda: apply_to_approved(
-        config, tracker, claude, profile, resume_text, only_ids=args.ids))
-    _print_counts(counts)
+    _print_counts(apply_in_terminal(tracker, only_ids=args.ids))
     return 0
 
 
@@ -676,7 +636,7 @@ def build_parser():
 
     sub.add_parser("queue", help="Show tailored jobs waiting for your review")
 
-    p = sub.add_parser("review", help="Open the review page in your browser")
+    p = sub.add_parser("review", help="Same as home")
     p.add_argument("--port", type=int, default=5050)
 
     p = sub.add_parser("home", help="Review and apply with buttons on a page in your browser")
@@ -687,7 +647,7 @@ def build_parser():
     p.add_argument("--count", type=int, help=argparse.SUPPRESS)
     p.add_argument("--no-find", action="store_true", help=argparse.SUPPRESS)
 
-    p = sub.add_parser("apply", help="Fill in applications for approved jobs (you click Submit)")
+    p = sub.add_parser("apply", help="Apply to approved jobs, answering in the terminal")
     p.add_argument("ids", type=int, nargs="*", help="Only these job numbers (default: all approved)")
 
     p = sub.add_parser("show", help="Show full details for one job")
@@ -716,7 +676,7 @@ def main():
             return cmd_score(config, tracker, args)
         if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule", "go", "today", "home"):
             handler = {"jobs": cmd_jobs, "tailor": cmd_tailor, "prepare": cmd_prepare,
-                       "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply,
+                       "queue": cmd_queue, "review": cmd_home, "apply": cmd_apply,
                        "schedule": cmd_schedule, "go": cmd_go, "today": cmd_today,
                        "home": cmd_home}[args.command]
             return handler(config, tracker, args)
