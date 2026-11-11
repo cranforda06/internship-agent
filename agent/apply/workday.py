@@ -210,6 +210,7 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
 # plus the labels of the visible fields. When it changes, a new page loaded.
 PAGE_SIGNATURE = r"""() => {
   const clean = t => (t || '').replace(/\s+/g, ' ').trim();
+  const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   const step = document.querySelector('[data-automation-id="progressBarActiveStep"], h2');
   // Only the questions' own labels, not error messages or dropdown contents,
   // so the agent's own clicking doesn't look like a new page.
@@ -220,8 +221,10 @@ PAGE_SIGNATURE = r"""() => {
   return {
     step: step ? clean(step.innerText) : '',
     labels: [...new Set(labels)].sort(),
-    password: !!document.querySelector('input[type=password]'),
-    menuOpen: !!document.querySelector('[role="listbox"] [role="option"]'),
+    // Only things you can SEE count: Workday can leave a hidden sign-in form
+    // or a closed menu inside the page.
+    password: [...document.querySelectorAll('input[type=password]')].some(shown),
+    menuOpen: [...document.querySelectorAll('[role="listbox"] [role="option"]')].some(shown),
     // Upload boxes count too: the "Autofill with Resume" page has nothing else.
     files: document.querySelectorAll('input[type=file]').length,
   };
@@ -296,6 +299,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
     current_page, attempted, last_seen, stable_since, rounds = None, set(), None, 0.0, 0
     last_filled = None   # the page state we last filled, so we don't keep re-checking it
+    last_reason = None   # why we're waiting right now, if we are
     started = time.time()
     while time_limit is None or time.time() - started < time_limit:
         try:
@@ -331,6 +335,18 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
         on_application = ("/apply" in page.url and not sig["password"]
                           and (sig["labels"] or sig["files"])
                           and not sig["menuOpen"])   # a dropdown is open: you're busy, wait
+        # Say why we're waiting (once per reason), so it's never a mystery.
+        if "/apply" not in page.url:
+            reason = "In the browser: click Apply, then 'Autofill with Resume'."
+        elif sig["password"]:
+            reason = "Sign-in page: waiting for you to sign in (or create the account)."
+        elif not (sig["labels"] or sig["files"]):
+            reason = "Waiting for the next page to load..."
+        else:
+            reason = None
+        if reason and reason != last_reason:
+            log(f"  ({reason})")
+        last_reason = reason
         fingerprint = (page.url, sig["step"], tuple(sig["labels"]), sig["files"])
         if fingerprint != last_seen:
             last_seen, stable_since = fingerprint, time.time()

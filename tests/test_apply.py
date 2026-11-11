@@ -459,7 +459,11 @@ def test_workday_autofill_with_resume_page_gets_the_resume(tmp_path, browser_pag
       <div data-automation-id="file-upload-drop-zone">Drop file here
         <button>Select file</button>
         <input type="file" data-automation-id="file-upload-input-ref" style="display:none">
-      </div></body></html>""")
+      </div>
+      <!-- Leftovers Workday can keep hidden in the page: must not block filling -->
+      <div style="display:none"><input type="password">
+        <ul role="listbox"><li role="option">English</li></ul></div>
+      </body></html>""")
 
     claude = LabelClaude({})
     workday.assist(browser_page, (folder / "autofillWithResume.html").as_uri(), claude, "m", PROFILE, "",
