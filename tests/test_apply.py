@@ -513,3 +513,18 @@ def test_workday_nested_labels_still_get_filled(tmp_path, browser_page):
 
     assert browser_page.input_value("#a1") == "Richmond"
     assert browser_page.input_value("#c1") == "Richmond"
+
+
+def test_workday_stuck_page_is_described_in_the_log(tmp_path, browser_page, apply_log_in_tmp):
+    import queue
+    from agent.apply import workday
+    folder = tmp_path / "apply"
+    folder.mkdir()
+    (folder / "odd.html").write_text("""<html><body><h2>My Information</h2>
+      <div data-automation-id="weirdBox"><span>Address</span><div contenteditable="true"></div></div>
+      </body></html>""")
+    workday.assist(browser_page, (folder / "odd.html").as_uri(), LabelClaude({}), "m", PROFILE, "", None,
+                   log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=11)
+    text = apply_log_in_tmp.read_text()
+    assert "no questions found on:" in text and "weirdBox" in text
+    assert "Richmond" not in text            # never anything from your profile

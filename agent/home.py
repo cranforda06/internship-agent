@@ -202,6 +202,9 @@ def run_home(config, tracker, claude, profile, resume_text, port=5050, open_brow
     if playwright_factory is None:
         from playwright.sync_api import sync_playwright as playwright_factory
 
+    import logging
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)   # hide "GET /now" lines
+
     session = ApplySession()
     # The web page gets its own connection to the tracker, since it runs
     # at the same time as the main program.

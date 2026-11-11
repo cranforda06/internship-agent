@@ -288,26 +288,45 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
     log("  Check the page, then click Next in the browser.")
 
 
-# What a page's fields look like (types, labels, Workday ids), never their
-# values. Saved to the apply log when the agent can't find questions on a page.
-DESCRIBE_PAGE = r"""() => [...document.querySelectorAll('input, textarea, select, button[aria-haspopup]')]
-  .filter(el => el.offsetWidth || el.offsetHeight).slice(0, 25).map(el => {
-    const box = el.closest('[data-automation-id]');
-    return [el.tagName.toLowerCase(), el.type || '', el.getAttribute('aria-label') || '',
-            el.getAttribute('aria-labelledby') ? 'labelledby' : '', el.id ? 'id' : '',
-            box ? box.getAttribute('data-automation-id') : ''].join(' | ');
-  })"""
+# What a page looks like (field types, Workday's layout ids, frames), never
+# what's typed in it. Saved to the apply log when the agent finds no questions.
+DESCRIBE_PAGE = r"""() => {
+  const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  const all = [...document.querySelectorAll('*')];
+  const fields = [...document.querySelectorAll('input, textarea, select, button[aria-haspopup]')];
+  const ids = [...new Set(all.map(el => el.getAttribute('data-automation-id')).filter(Boolean))];
+  return {
+    step: (document.querySelector('[data-automation-id="progressBarActiveStep"], h2') || {}).innerText || '',
+    fields: fields.length,
+    visible_fields: fields.filter(shown).length,
+    labels: document.querySelectorAll('label, legend').length,
+    iframes: document.querySelectorAll('iframe').length,
+    shadow_roots: all.filter(el => el.shadowRoot).length,
+    sample: fields.filter(shown).slice(0, 20).map(el => {
+      const box = el.closest('[data-automation-id]');
+      return [el.tagName.toLowerCase(), el.type || '', el.getAttribute('aria-label') ? 'aria-label' : '',
+              el.getAttribute('aria-labelledby') ? 'labelledby' : '', el.id ? 'id' : '',
+              box ? box.getAttribute('data-automation-id') : ''].join(' | ');
+    }),
+    automation_ids: ids.slice(0, 60),
+  };
+}"""
 
 
 def _describe_page(page):
     from agent.apply import history
     try:
-        rows = page.evaluate(DESCRIBE_PAGE)
-    except Exception:
+        info = page.evaluate(DESCRIBE_PAGE)
+    except Exception as e:
+        history.write(f"  couldn't describe the page: {e.__class__.__name__}: {str(e)[:200]}")
         return
-    history.write(f"  page with fields but no questions found: {page.url}")
-    for row in rows:
-        history.write(f"    {row}")
+    history.write(f"  no questions found on: {page.url}")
+    history.write(f"    step={info['step'][:60]!r} fields={info['fields']} visible={info['visible_fields']} "
+                  f"labels={info['labels']} iframes={info['iframes']} frames={len(page.frames)} "
+                  f"shadow_roots={info['shadow_roots']}")
+    for row in info["sample"]:
+        history.write(f"    field: {row}")
+    history.write(f"    layout ids: {', '.join(info['automation_ids'])}")
 
 
 def _print_keyboard_help():
@@ -355,6 +374,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     last_filled = None   # the page state we last filled, so we don't keep re-checking it
     last_reason = None   # why we're waiting right now, if we are
     waiting_since, described = time.time(), False
+    failures = 0
     started = time.time()
     while time_limit is None or time.time() - started < time_limit:
         try:
@@ -381,8 +401,14 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
         try:
             sig = page.evaluate(PAGE_SIGNATURE)
-        except Exception:
-            time.sleep(poll_seconds)   # page is mid-navigation
+            failures = 0
+        except Exception as e:
+            # Normal for a moment while a page loads. If it keeps failing, note why.
+            failures += 1
+            if failures == 10:
+                from agent.apply import history
+                history.write(f"  page check keeps failing: {e.__class__.__name__}: {str(e)[:200]}")
+            time.sleep(poll_seconds)
             continue
 
         # Only fill real application pages: never sign-in pages, never the
@@ -402,9 +428,9 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
         if reason and reason != last_reason:
             log(f"  ({reason})")
             waiting_since = time.time()
-        if (reason == "Waiting for the next page to load..." and sig["inputs"] and not described
+        if (reason == "Waiting for the next page to load..." and not described
                 and time.time() - waiting_since > 8):
-            _describe_page(page)   # it has fields but we found no questions: note why
+            _describe_page(page)   # stuck with no questions found: note what the page looks like
             described = True
         if reason is None:
             described = False
