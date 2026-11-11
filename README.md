@@ -13,11 +13,12 @@ python main.py go
 `python main.py go` gets today's jobs ready (skipped if the schedule already did it),
 then opens the **home page** in your browser:
 
-- **Waiting for your review:** *Open* a job, then *Approve* or *Skip* it.
-- **Ready to apply:** click *Apply*. The application opens in your browser and your
-  tailored resume pops up in Finder: drag it into the upload box. Apply and submit
-  yourself, then click *I submitted it*, *Not yet*, or *Skip*.
-- Click **Finish for today** when you're done.
+1. **Waiting for your review:** click *Open* on a job, then *Approve* or *Skip* it.
+2. **Ready to apply:** click *Apply*. The application opens in a new tab and your
+   tailored resume pops up in Finder. Drag it into the upload box, fill out the
+   application, and click Submit yourself.
+3. Back on the home page, click *I submitted it*, *Not yet*, or *Skip*.
+4. Click **Finish for today** when you're done.
 
 `python main.py home` opens the home page without getting new jobs first.
 Keep the terminal open while you work.
@@ -28,7 +29,9 @@ and sends a notification. It never applies. `--off` turns it off.
 ## Good to know
 
 - Only postings from the last 30 days, newest first, Richmond and DC first.
-- It keeps up to 15 jobs ready for you, at about $1–2 a day in API credits.
+- It keeps up to 15 jobs ready for you, at about $1–2 a day in API credits. Applying is free.
+- Every tailored resume is saved in `output/resumes/`. `python main.py list` shows which
+  one you sent to each job.
 
 ## Other commands
 
@@ -53,6 +56,7 @@ python -m playwright install chromium   # used to make the resume PDFs
 
 1. Copy `.env.example` to `.env` and add your Anthropic API key.
 2. Put your resume in `data/resume.md`.
+
 Other settings are in `config.yaml`.
 
 ## Privacy
