@@ -130,14 +130,18 @@ def _visible_options(page):
     return [o.strip() for o in options.all_inner_texts() if o.strip()]
 
 
-def read_page(page, skip=()):
+def read_page(page, skip=(), stats=None):
     """Return the questions on the current page that are still empty.
 
     Questions in `skip` (as (kind, label)) are left out, and their dropdowns
     are NOT clicked open, so already-handled fields aren't touched again.
     """
     questions = []
-    for q in page.evaluate(READ_PAGE):
+    found = page.evaluate(READ_PAGE)
+    if stats is not None:
+        stats.update(found=len(found), already_filled=sum(1 for q in found if q["filled"]),
+                     handled=sum(1 for q in found if not q["filled"] and (q["kind"], q["label"]) in skip))
+    for q in found:
         if q.pop("filled") or (q["kind"], q["label"]) in skip:
             continue
         if q["kind"] == "dropdown":
@@ -265,7 +269,12 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
     `attempted` holds the labels already handled on this page, so a field
     you changed is never overwritten, and only newly revealed fields get filled.
     """
-    questions = read_page(page, skip=attempted)
+    stats = {}
+    questions = read_page(page, skip=attempted, stats=stats)
+    from agent.apply import history
+    history.write(f"  reading page {page.url}: {stats.get('found', 0)} field(s), "
+                  f"{stats.get('already_filled', 0)} already filled, {stats.get('handled', 0)} handled before, "
+                  f"{len(questions)} to fill")
     if not questions:
         return
     attempted.update((q.kind, q.label) for q in questions)
@@ -273,7 +282,6 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
     left = fill_page(page, questions, answers, resume_pdf, log)
     filled = len([q for q in questions if q.key in answers])
     # For the apply log only: each question's name and what happened (never the answer).
-    from agent.apply import history
     left_keys = {q.key for q in left}
     history.write(f"  page: {page.url}")
     for q in questions:
@@ -375,6 +383,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     last_reason = None   # why we're waiting right now, if we are
     waiting_since, described = time.time(), False
     failures = 0
+    menu_since = None
     started = time.time()
     while time_limit is None or time.time() - started < time_limit:
         try:
@@ -413,9 +422,15 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
         # Only fill real application pages: never sign-in pages, never the
         # job posting itself, and only once the page has stopped changing.
+        # A dropdown menu is open: you're probably picking something, so wait.
+        # But some pages always show a list; after a few seconds, go ahead.
+        if sig["menuOpen"]:
+            menu_since = menu_since or time.time()
+        else:
+            menu_since = None
+        menu_blocks = sig["menuOpen"] and time.time() - menu_since < 6
         on_application = ("/apply" in page.url and not sig["password"]
-                          and (sig["labels"] or sig["files"])
-                          and not sig["menuOpen"])   # a dropdown is open: you're busy, wait
+                          and (sig["labels"] or sig["files"]) and not menu_blocks)
         # Say why we're waiting (once per reason), so it's never a mystery.
         if "/apply" not in page.url:
             reason = "In the browser: click Apply, then 'Autofill with Resume'."
@@ -423,6 +438,8 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             reason = "Sign-in page: waiting for you to sign in (or create the account)."
         elif not (sig["labels"] or sig["files"]):
             reason = "Waiting for the next page to load..."
+        elif menu_blocks:
+            reason = "A dropdown list is open: waiting a moment."
         else:
             reason = None
         if reason and reason != last_reason:
@@ -449,15 +466,17 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             rounds += 1
             if rounds > MAX_AUTO_ROUNDS:
                 if rounds == MAX_AUTO_ROUNDS + 1:
-                    print("  (Stopped auto-filling this page so it doesn't keep changing."
-                          " Press Enter here to fill it again.)")
+                    log("  (Stopped auto-filling this page so it doesn't keep changing."
+                        " Use 'Fill this page again' to fill it again.)")
                 last_filled = last_seen = fingerprint
                 time.sleep(poll_seconds)
                 continue
             try:
                 _fill_new_fields(page, attempted, claude, model, profile, resume_text, resume_pdf, log)
             except Exception as e:
-                print(f"  ! Couldn't fill this page ({e.__class__.__name__}). Fill it in yourself.")
+                log(f"  ! Couldn't fill this page ({e.__class__.__name__}). Fill it in yourself.")
+                from agent.apply import history
+                history.write(f"    error detail: {str(e)[:300]}")
             try:   # remember the page as it looks AFTER filling
                 after = page.evaluate(PAGE_SIGNATURE)
                 last_filled = (page.url, after["step"], tuple(after["labels"]), after["files"])

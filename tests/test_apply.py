@@ -528,3 +528,17 @@ def test_workday_stuck_page_is_described_in_the_log(tmp_path, browser_page, appl
     text = apply_log_in_tmp.read_text()
     assert "no questions found on:" in text and "weirdBox" in text
     assert "Richmond" not in text            # never anything from your profile
+
+
+def test_workday_page_that_always_shows_a_list_still_gets_filled(tmp_path, browser_page):
+    import queue
+    from agent.apply import workday
+    folder = tmp_path / "apply"
+    folder.mkdir()
+    (folder / "info.html").write_text("""<html><body><h2>My Information</h2>
+      <div data-automation-id="formField-city"><label for="c1">City</label><input id="c1"></div>
+      <ul role="listbox"><li role="option">Always showing</li></ul>
+      </body></html>""")
+    workday.assist(browser_page, (folder / "info.html").as_uri(), LabelClaude({"City": "Richmond"}), "m",
+                   PROFILE, "", None, log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=12)
+    assert browser_page.input_value("#c1") == "Richmond"
