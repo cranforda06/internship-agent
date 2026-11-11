@@ -17,6 +17,7 @@ Examples:
     python main.py prepare              # daily: find, score, tailor your top 5
     python main.py queue                # tailored jobs waiting for your review
     python main.py tailor 42            # tailor your resume for one job
+    python main.py home                 # review AND apply with buttons in your browser
     python main.py review               # approve/edit/skip on a page in your browser
     python main.py apply                # fill in approved applications (you click Submit)
     python main.py schedule --time 7:00 # run 'prepare' automatically every day
@@ -364,15 +365,14 @@ def cmd_review(config, tracker, args):
 
 def cmd_go(config, tracker, args):
     """Everything in one command: prepare (if today's hasn't run), auto-approve,
-    review the rest, then apply to everything approved."""
+    then open the home page to review and apply."""
     from datetime import date
 
     from agent import schedule
     from agent.approval import auto_approve
-    from agent.review import run_until_done
 
     today = date.today()
-    print("=== Step 1/3: Getting today's jobs ready ===")
+    print("=== Step 1/2: Getting today's jobs ready ===")
     if schedule.last_run_date() == today:
         print("Already done today (by the schedule or an earlier run), nothing to pay for.")
     else:
@@ -384,47 +384,75 @@ def cmd_go(config, tracker, args):
             schedule.record_run(today)   # so the scheduled run doesn't do it again today
 
     auto_approve(config, tracker)
-    to_review = tracker.list_all(status="queued")
-    print(f"\n=== Step 2/3: Review ({len(to_review)} job(s) need you) ===")
-    if to_review:
-        run_until_done(config, tracker, port=args.port)
-    else:
-        print("Nothing to review.")
-
-    print(f"\n=== Step 3/3: Apply ===")
-    if not tracker.list_all(status="approved"):
-        print("Nothing approved to apply to today. All done!")
+    print("\n=== Step 2/2: Review and apply on the home page ===")
+    if not tracker.list_all(status="queued") and not tracker.list_all(status="approved"):
+        print("Nothing to review or apply to today. All done!")
         return 0
-    args.ids = []
-    return cmd_apply(config, tracker, args)
+    return cmd_home(config, tracker, args, auto_approved=True)
 
 
-def cmd_apply(config, tracker, args):
-    from agent.apply.runner import apply_to_approved
+def _apply_setup(config):
+    """Everything applying needs: Claude, your resume, and your profile.
+    Returns (claude, profile, resume_text), or None if something's missing."""
     from agent.profile import create_template, load_profile
 
     profile_path = config["profile_path"]
     setup = _setup_claude(config)
     if not setup:
-        return 1
+        return None
     claude, resume_text = setup
     if not profile_path.exists():
         create_template(profile_path, resume_text)
-        print(f"Created {profile_path}. Fill in the blank answers there, then run apply again.")
-        return 0
-    profile = load_profile(profile_path)
+        print(f"Created {profile_path}. Fill in the blank answers there, then run this again.")
+        return None
+    return claude, load_profile(profile_path), resume_text
+
+
+def _auto_approve_quietly(config, tracker):
     from agent.approval import auto_approve
+
     approved, _ = auto_approve(config, tracker, log=lambda m: None)
     if approved:
         print(f"Auto-approved {len(approved)} strong match(es) from your queue (fit "
               f"{config['daily']['auto_approve_min_fit']}+).")
+
+
+def _print_counts(counts):
+    if counts:
+        print(f"Submitted: {counts['submitted']}   Saved for later: {counts['later']}   "
+              f"Skipped: {counts['skipped']}")
+
+
+def cmd_home(config, tracker, args, auto_approved=False):
+    """The home page: review and apply with buttons."""
+    from agent.home import run_home
+
+    setup = _apply_setup(config)
+    if not setup:
+        return 1
+    claude, profile, resume_text = setup
+    if not auto_approved:
+        _auto_approve_quietly(config, tracker)
+    counts = _run_with_api(claude, lambda: run_home(
+        config, tracker, claude, profile, resume_text, port=args.port))
+    _print_counts(counts)
+    return 0
+
+
+def cmd_apply(config, tracker, args):
+    """Apply in the terminal (the home page does the same with buttons)."""
+    from agent.apply.runner import apply_to_approved
+
+    setup = _apply_setup(config)
+    if not setup:
+        return 1
+    claude, profile, resume_text = setup
+    _auto_approve_quietly(config, tracker)
     print("Opening a browser. For each approved job the agent fills in what it can,")
     print("then waits for YOU to check everything and click Submit.")
     counts = _run_with_api(claude, lambda: apply_to_approved(
         config, tracker, claude, profile, resume_text, only_ids=args.ids))
-    if counts:
-        print(f"Submitted: {counts['submitted']}   Saved for later: {counts['later']}   "
-              f"Skipped: {counts['skipped']}")
+    _print_counts(counts)
     return 0
 
 
@@ -641,7 +669,10 @@ def build_parser():
     p = sub.add_parser("review", help="Open the review page in your browser")
     p.add_argument("--port", type=int, default=5050)
 
-    p = sub.add_parser("go", help="Everything in one: prepare, review, then apply")
+    p = sub.add_parser("home", help="Review and apply with buttons on a page in your browser")
+    p.add_argument("--port", type=int, default=5050)
+
+    p = sub.add_parser("go", help="Everything in one: prepare, then the home page")
     p.add_argument("--port", type=int, default=5050)
     p.add_argument("--count", type=int, help=argparse.SUPPRESS)
     p.add_argument("--no-find", action="store_true", help=argparse.SUPPRESS)
@@ -673,10 +704,11 @@ def main():
             return cmd_find(config, tracker, args)
         if args.command == "score":
             return cmd_score(config, tracker, args)
-        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule", "go", "today"):
+        if args.command in ("jobs", "tailor", "prepare", "queue", "review", "apply", "schedule", "go", "today", "home"):
             handler = {"jobs": cmd_jobs, "tailor": cmd_tailor, "prepare": cmd_prepare,
                        "queue": cmd_queue, "review": cmd_review, "apply": cmd_apply,
-                       "schedule": cmd_schedule, "go": cmd_go, "today": cmd_today}[args.command]
+                       "schedule": cmd_schedule, "go": cmd_go, "today": cmd_today,
+                       "home": cmd_home}[args.command]
             return handler(config, tracker, args)
         commands = {"add": cmd_add, "import": cmd_import, "list": cmd_list,
                     "status": cmd_status, "show": cmd_show}

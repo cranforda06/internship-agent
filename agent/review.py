@@ -60,13 +60,18 @@ details summary { cursor:pointer; font-weight:600; }
 .posting { white-space:pre-wrap; font-size:13px; max-height:420px; overflow:auto; }
 a { color:var(--blue); }
 ul { margin:6px 0; padding-left:20px; }
+.now { border:2px solid var(--blue); }
+.notes { font:12px/1.5 ui-monospace, Menlo, monospace; background:var(--bg); border-radius:8px;
+         padding:8px 10px; margin:8px 0; max-height:260px; overflow:auto; white-space:pre-wrap; }
+.btns { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+button:disabled { opacity:.45; cursor:not-allowed; }
 """
 
 
-def page(title, body):
+def page(title, body, heading="Internship review"):
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' "
             f"content='width=device-width, initial-scale=1'><title>{html.escape(title)}</title>"
-            f"<style>{STYLE}</style></head><body><header><a href='/'>Internship review</a>"
+            f"<style>{STYLE}</style></head><body><header><a href='/'>{html.escape(heading)}</a>"
             f"<span class='muted' style='color:#aab'>Only you can see this page.</span></header>"
             f"<main>{body}</main></body></html>")
 
@@ -92,10 +97,10 @@ def _short(location, limit=90):
     return location if len(location) <= limit else location[:limit].rsplit(";", 1)[0] + "; and more"
 
 
-def form_button(action, label, cls):
+def form_button(action, label, cls, disabled=False):
     return (f"<form method='post' action='{action}' style='display:inline'>"
             f"<input type='hidden' name='token' value='{TOKEN}'>"
-            f"<button class='{cls}'>{label}</button></form>")
+            f"<button class='{cls}'{' disabled' if disabled else ''}>{label}</button></form>")
 
 
 def _similarity(a, b):
@@ -151,9 +156,15 @@ def run_until_done(config, tracker, port=5050, open_browser=True):
         server.server_close()
 
 
-def create_app(config, tracker):
+def create_app(config, tracker, session=None):
+    """The review page. With `session` (from agent.home) it's the home page:
+    approved jobs also get an Apply button that fills the form in for you."""
     app = Flask(__name__)
     original_path = Path(config["resume_path"])
+    if session is not None:
+        from agent.home import add_routes
+
+        add_routes(app, session, tracker)
 
     def check_token():
         if request.form.get("token") != TOKEN:
@@ -165,30 +176,52 @@ def create_app(config, tracker):
             abort(404)
         return row
 
+    def job_card(r, apply_button=""):
+        report = json.loads(r["tailor_report"] or "{}")
+        pill = ("<span class='pill warn'>check flagged items</span>" if report.get("needs_attention")
+                else "<span class='pill ok'>checks passed</span>")
+        warn = ""
+        if tracker.applied_at_company(r["company"], exclude_id=r["id"]):
+            warn = " <span class='pill bad'>applied here before</span>"
+        return (f"<div class='card row'><div><b>{esc(r['company'])}</b> - {esc(r['role'])}"
+                f"<div class='muted'>{esc(_short(r['location']))} · fit {r['fit_score']} · "
+                f"{esc(age_text(r['posted']))} · {source_pill(r)}</div></div>"
+                f"<div>{pill}{warn} <a class='btn skip' href='/job/{r['id']}'>Open</a> {apply_button}</div></div>")
+
+    def section(title, rows, button=lambda r: ""):
+        out = [f"<h2>{title} ({len(rows)})</h2>"]
+        if not rows:
+            out.append("<p class='muted'>Nothing here.</p>")
+        out += [job_card(r, button(r)) for r in rows]
+        return out
+
     @app.get("/")
     def index():
-        cards = []
-        for status, title in (("queued", "Waiting for your review"), ("approved", "Approved: ready to apply")):
-            rows = tracker.list_all(status=status)
-            cards.append(f"<h2>{title} ({len(rows)})</h2>")
-            if not rows:
-                cards.append("<p class='muted'>Nothing here.</p>")
-            for r in rows:
-                report = json.loads(r["tailor_report"] or "{}")
-                pill = ("<span class='pill warn'>check flagged items</span>" if report.get("needs_attention")
-                        else "<span class='pill ok'>checks passed</span>")
-                warn = ""
-                if tracker.applied_at_company(r["company"], exclude_id=r["id"]):
-                    warn = " <span class='pill bad'>applied here before</span>"
-                cards.append(
-                    f"<div class='card row'><div><b>{esc(r['company'])}</b> - {esc(r['role'])}"
-                    f"<div class='muted'>{esc(_short(r['location']))} · fit {r['fit_score']} · "
-                    f"{esc(age_text(r['posted']))} · {source_pill(r)}</div></div>"
-                    f"<div>{pill}{warn} <a class='btn edit' href='/job/{r['id']}'>Open</a></div></div>")
-        cards.append("<div class='card row'><span>Finished? This closes the review page and starts "
-                     "filling in your approved applications in the terminal.</span>"
-                     + form_button("/done", "Done reviewing → start applying", "approve") + "</div>")
-        return page("Internship review", "".join(cards))
+        queued, approved = tracker.list_all(status="queued"), tracker.list_all(status="approved")
+        if session is None:
+            cards = section("Waiting for your review", queued) + section("Approved: ready to apply", approved)
+            cards.append("<div class='card row'><span>Finished? This closes the review page and starts "
+                         "filling in your approved applications in the terminal.</span>"
+                         + form_button("/done", "Done reviewing → start applying", "approve") + "</div>")
+            return page("Internship review", "".join(cards))
+
+        if session.finished:
+            return page("Internship agent", "<div class='card'><h2>All done for today ✓</h2>"
+                        "<p>You can close this tab. The terminal shows a summary.</p></div>",
+                        heading="Internship agent")
+        busy = session.busy
+        cards = [f"<div class='card now' id='now'>{session.panel_html()}</div>"]
+        # Oldest approval first, the same order `apply` uses.
+        cards += section("Ready to apply", list(reversed(approved)),
+                         lambda r: form_button(f"/apply/{r['id']}", "Apply", "approve", disabled=busy))
+        cards += section("Waiting for your review", queued)
+        cards.append("<div class='card row'><span>Done for today? This closes the browser window the "
+                     "agent uses. Jobs you didn't get to stay here for next time.</span>"
+                     + form_button("/finish", "Finish for today", "skip", disabled=busy) + "</div>")
+        from agent.home import PANEL_SCRIPT
+
+        return page("Internship agent", "".join(cards) + PANEL_SCRIPT.replace("BUSY", "true" if busy else "false"),
+                    heading="Internship agent")
 
     @app.post("/done")
     def done():
@@ -224,12 +257,14 @@ def create_app(config, tracker):
         elif r["status"] == "approved":
             buttons = ("<span class='pill ok'>Approved</span> " +
                        form_button(f"/job/{job_id}/unapprove", "Move back to review", "skip"))
+            if session is not None:
+                buttons += " " + form_button(f"/apply/{job_id}", "Apply", "approve", disabled=session.busy)
 
         body = f"""
         <div class='card row'><div><h2 style='margin:0'>{esc(r['company'])} - {esc(r['role'])}</h2>
           <div class='muted' title='{esc(r['location'])}'>{esc(_short(r['location']))} · {esc(age_text(r['posted']))} · {source_pill(r)} ·
           <a href='{esc(r['link'])}' target='_blank' rel='noopener'>read the posting ↗</a>
-          <span>(just to read it: the agent fills the form when you run <code>apply</code>)</span></div></div>
+          <span>(just to read it: the agent fills the form when you click Apply)</span></div></div>
           <div>{buttons}</div></div>
         {"<div class='card' style='border-color:#b42318'><b>⚠ You've applied at this company before:</b><ul>" + past_html + "</ul></div>" if past else ""}
         <div class='grid'>

@@ -242,27 +242,15 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
     answers = plan_answers(claude, model, profile, resume_text, questions)
     left = fill_page(page, questions, answers, resume_pdf, log)
     filled = len([q for q in questions if q.key in answers])
-    print(f"\n  ✓ filled {filled} field(s) on this page.")
+    log(f"  ✓ filled {filled} field(s) on this page.")
     if left:
-        print(f"  Left for you ({len(left)}):")
+        log(f"  Left for you ({len(left)}):")
         for q in left:
-            print(f"    - {q.label[:90]}")
-    print("  Check the page, then click Next in the browser.")
+            log(f"    - {q.label[:90]}")
+    log("  Check the page, then click Next in the browser.")
 
 
-def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print, poll_seconds=1.0,
-           typed=None, time_limit=None):
-    """Walk through a Workday application with you, filling each page as it loads.
-
-    `typed` and `time_limit` are only for tests (a fake keyboard and a stop time).
-    """
-    import queue
-    import threading
-    import time
-
-    from agent.apply.runner import show_resume
-
-    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+def _print_keyboard_help():
     print("  Workday, hands-free:")
     print("   1. In the browser: click Apply, then 'Autofill with Resume', and sign in")
     print("      (or create an account; the browser remembers it next time).")
@@ -272,9 +260,25 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     print("  Here: [d] done with this job   [v] view resume   [u] upload resume again   "
           "[Enter] re-fill this page")
 
+
+def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print, poll_seconds=1.0,
+           typed=None, time_limit=None):
+    """Walk through a Workday application with you, filling each page as it loads.
+
+    `typed` is where your keys come from: your keyboard if None, or a queue
+    the home page's buttons put keys into. `time_limit` is only for tests.
+    """
+    import queue
+    import threading
+    import time
+
+    from agent.apply.runner import show_resume
+
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
     # Your typing is read in the background, so the agent can keep watching
     # the browser at the same time.
     if typed is None:
+        _print_keyboard_help()
         typed = queue.Queue()
 
         def read_keyboard():
@@ -305,9 +309,9 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             if boxes.count() and resume_pdf:
                 for i in range(boxes.count()):
                     boxes.nth(i).set_input_files(resume_pdf)
-                print("  ✓ uploaded your tailored resume again.")
+                log("  ✓ uploaded your tailored resume again.")
             else:
-                print("  No upload box on this page.")
+                log("  No upload box on this page.")
         elif choice == "":
             attempted = set()   # Enter: try every empty field on this page again
             last_filled = None
