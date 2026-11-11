@@ -95,7 +95,8 @@ class ApplySession:
             return "<b>Saving…</b>"
         jid = job["id"]
         steps = ("<ol><li>In the browser window: click <b>Apply</b>, then <b>Autofill with Resume</b>, and sign in.</li>"
-                 "<li>Each page fills itself a moment after it loads. Check it, then click <b>Next</b> yourself.</li>"
+                 "<li>Your resume uploads itself, and Workday fills in what it can from it. For the rest of a "
+                 "page, click <b>Fill this page</b> below. Check each page, then click <b>Next</b> yourself.</li>"
                  "<li>On the last page, <b>you</b> click <b>Submit</b>. Then click <b>I submitted it</b> here.</li></ol>"
                  if site == "workday" else
                  "<p>This site isn't auto-filled, so it opened in <b>your normal browser</b>. Apply "
@@ -106,7 +107,7 @@ class ApplySession:
         workday_buttons = ""
         if site == "workday":
             workday_buttons = ("<div class='btns'>"
-                               + form_button("/now/key/fill", "Fill this page again", "skip") + " "
+                               + form_button("/now/key/fill", "Fill this page", "edit") + " "
                                + form_button("/now/key/upload", "Upload resume again", "skip") + "</div>")
         return (f"<div class='row'><b>Applying: {esc(job['company'])} - {esc(job['role'])}</b>"
                 f"<a href='/job/{jid}/pdf' target='_blank'>View resume ↗</a></div>{steps}{notes_html}"

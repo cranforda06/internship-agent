@@ -337,20 +337,36 @@ def _describe_page(page):
     history.write(f"    layout ids: {', '.join(info['automation_ids'])}")
 
 
-def _print_keyboard_help():
-    print("  Workday, hands-free:")
+def _print_keyboard_help(auto_fill):
+    print("  Workday:")
     print("   1. In the browser: click Apply, then 'Autofill with Resume', and sign in")
     print("      (or create an account; the browser remembers it next time).")
-    print("   2. Each application page fills itself a moment after it loads.")
-    print("      Check it, then click Next/Continue yourself.")
+    if auto_fill:
+        print("   2. Each application page fills itself a moment after it loads.")
+    else:
+        print("   2. Your resume uploads itself, and Workday fills in what it can from it.")
+        print("      Press Enter here to have the agent fill the rest of a page.")
+    print("      Check each page, then click Next/Continue yourself.")
     print("   3. On the Review page, YOU click Submit. Then type d here.")
     print("  Here: [d] done with this job   [v] view resume   [u] upload resume again   "
-          "[Enter] re-fill this page")
+          "[Enter] fill this page")
+
+
+def _upload_only(page, resume_pdf, log):
+    """Put the tailored resume in this page's upload box, touching nothing else."""
+    found = page.evaluate(READ_PAGE)   # only reads the page (no clicking)
+    boxes = [Question(**{k: v for k, v in q.items() if k != "filled"}) for q in found if q["kind"] == "file"]
+    if boxes:
+        fill_page(page, boxes, {}, resume_pdf, log)
 
 
 def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print, poll_seconds=1.0,
-           typed=None, time_limit=None):
-    """Walk through a Workday application with you, filling each page as it loads.
+           typed=None, time_limit=None, auto_fill=True):
+    """Walk through a Workday application with you.
+
+    Your tailored resume is always uploaded automatically. With auto_fill,
+    each page's questions also fill themselves as it loads; without it, a
+    page's questions are filled only when you ask (Enter / "Fill this page").
 
     `typed` is where your keys come from: your keyboard if None, or a queue
     the home page's buttons put keys into. `time_limit` is only for tests.
@@ -365,7 +381,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     # Your typing is read in the background, so the agent can keep watching
     # the browser at the same time.
     if typed is None:
-        _print_keyboard_help()
+        _print_keyboard_help(auto_fill)
         typed = queue.Queue()
 
         def read_keyboard():
@@ -384,6 +400,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     waiting_since, described = time.time(), False
     failures = 0
     menu_since = None
+    fill_now = False     # you asked to fill this page
     started = time.time()
     while time_limit is None or time.time() - started < time_limit:
         try:
@@ -404,9 +421,10 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             else:
                 log("  No upload box on this page.")
         elif choice == "":
-            attempted = set()   # Enter: try every empty field on this page again
+            attempted = set()   # Enter: fill every empty field on this page (again)
             last_filled = None
             rounds = 0
+            fill_now = True
 
         try:
             sig = page.evaluate(PAGE_SIGNATURE)
@@ -459,7 +477,16 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
         # Fill only when the page changed since we last filled it (a new page,
         # or new fields appeared), so we're not clicking around while you work.
-        if on_application and settled and fingerprint != last_filled:
+        if on_application and settled and fingerprint != last_filled and not (auto_fill or fill_now):
+            # Upload-only: drop the resume in any upload box; leave everything else to you.
+            if sig["files"]:
+                try:
+                    _upload_only(page, resume_pdf, log)
+                except Exception as e:
+                    log(f"  ! Couldn't upload the resume here ({e.__class__.__name__}). Use 'Upload resume again'.")
+            last_filled = last_seen = fingerprint
+        elif on_application and settled and fingerprint != last_filled:
+            fill_now = False
             this_page = (page.url, sig["step"])
             if this_page != current_page:
                 current_page, attempted, rounds = this_page, set(), 0
@@ -467,7 +494,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             if rounds > MAX_AUTO_ROUNDS:
                 if rounds == MAX_AUTO_ROUNDS + 1:
                     log("  (Stopped auto-filling this page so it doesn't keep changing."
-                        " Use 'Fill this page again' to fill it again.)")
+                        " Click 'Fill this page' to fill it again.)")
                 last_filled = last_seen = fingerprint
                 time.sleep(poll_seconds)
                 continue

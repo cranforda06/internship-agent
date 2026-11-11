@@ -22,8 +22,9 @@ then opens the **home page** in your browser:
 `python main.py home` opens the home page without getting new jobs first.
 Keep the terminal open while you work.
 
-**Workday jobs:** click *Apply* → *Autofill with Resume* and sign in. Each page fills
-itself; check it and click *Next* yourself.
+**Workday jobs:** click *Apply* → *Autofill with Resume* and sign in. Your resume
+uploads itself. Click *Fill this page* on the home page for any questions Workday
+didn't fill, then check the page and click *Next* yourself.
 
 **Schedule:** `python main.py schedule --time 10:00` gets jobs ready every weekday
 and sends a notification. It never applies. `--off` turns it off.

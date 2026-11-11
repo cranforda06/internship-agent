@@ -198,3 +198,7 @@ apply:
   # Open each job's tailored resume PDF (in Preview) when its application
   # starts, so you can see exactly what's uploaded. Type v to reopen it.
   open_resume_automatically: true
+  # Workday: your resume always uploads by itself. false = the agent fills a
+  # page's questions only when you click "Fill this page" (calm, recommended).
+  # true = every page fills itself as it loads.
+  workday_auto_fill: false

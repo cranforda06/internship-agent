@@ -542,3 +542,35 @@ def test_workday_page_that_always_shows_a_list_still_gets_filled(tmp_path, brows
     workday.assist(browser_page, (folder / "info.html").as_uri(), LabelClaude({"City": "Richmond"}), "m",
                    PROFILE, "", None, log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=12)
     assert browser_page.input_value("#c1") == "Richmond"
+
+
+def test_workday_upload_only_until_you_ask(tmp_path, browser_page):
+    """Default mode: the resume uploads itself; questions fill only when you ask."""
+    import queue
+    import threading
+    import time
+    from agent.apply import workday
+    folder = tmp_path / "apply"
+    folder.mkdir()
+    pdf = tmp_path / "Pat_Doe_Resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    (folder / "exp.html").write_text("""<html><body><h2>My Experience</h2>
+      <div data-automation-id="formField-resume"><label>Resume/CV</label><input type="file" id="f"></div>
+      <div data-automation-id="formField-city"><label for="c1">City</label><input id="c1"></div>
+      </body></html>""")
+    keys = queue.Queue()
+    claude = LabelClaude({"City": "Richmond"})
+    seen = {}
+
+    def press_fill_later():
+        time.sleep(6)
+        seen["before"] = claude.calls
+        keys.put("")                         # you click "Fill this page"
+
+    threading.Thread(target=press_fill_later, daemon=True).start()
+    workday.assist(browser_page, (folder / "exp.html").as_uri(), claude, "m", PROFILE, "", str(pdf),
+                   log=lambda m: None, poll_seconds=0.2, typed=keys, time_limit=11, auto_fill=False)
+
+    assert browser_page.evaluate("document.querySelector('#f').files[0].name") == pdf.name
+    assert seen["before"] == 0               # nothing filled (or sent to Claude) before you asked
+    assert browser_page.input_value("#c1") == "Richmond"   # filled once you asked

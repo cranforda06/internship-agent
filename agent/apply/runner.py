@@ -132,7 +132,7 @@ def fill_job(page, row, tracker, claude, profile, resume_text, settings, log=pri
             _report_left(lever.fill(page, questions, answers, pdf, log), log)
         elif site == "workday":
             workday.assist(page, row["link"], claude, model, profile, resume_text, pdf, log,
-                           typed=workday_keys)
+                           typed=workday_keys, auto_fill=settings.get("workday_auto_fill", False))
         else:
             # Sites the agent doesn't fill: open them in YOUR normal browser.
             # Some (like SmartRecruiters) block browsers run by a program.
