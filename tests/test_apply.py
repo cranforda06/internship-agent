@@ -445,3 +445,25 @@ def test_workday_page_that_keeps_changing_does_not_loop(tmp_path, browser_page):
 
     assert browser_page.evaluate("window.opens") == 1     # the dropdown was opened only once
     assert claude.calls <= workday.MAX_AUTO_ROUNDS        # stopped instead of looping
+
+
+def test_workday_autofill_with_resume_page_gets_the_resume(tmp_path, browser_page):
+    """The "Autofill with Resume" page is only an upload box, no other questions."""
+    import queue
+    from agent.apply import workday
+    folder = tmp_path / "apply"
+    folder.mkdir()
+    pdf = tmp_path / "Pat_Doe_Resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    (folder / "autofillWithResume.html").write_text("""<html><body><h2>Autofill with Resume</h2>
+      <div data-automation-id="file-upload-drop-zone">Drop file here
+        <button>Select file</button>
+        <input type="file" data-automation-id="file-upload-input-ref" style="display:none">
+      </div></body></html>""")
+
+    claude = LabelClaude({})
+    workday.assist(browser_page, (folder / "autofillWithResume.html").as_uri(), claude, "m", PROFILE, "",
+                   str(pdf), log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=5)
+
+    assert browser_page.evaluate("document.querySelector('input[type=file]').files[0].name") == pdf.name
+    assert claude.calls == 0                     # nothing to ask Claude on an upload-only page

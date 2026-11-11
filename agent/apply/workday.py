@@ -171,8 +171,9 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
             if q.kind == "file":
                 label = q.label.lower()
                 already = pdf_name and page.get_by_text(pdf_name).count() > 0
-                if resume_pdf and not already and ("resume" in label or "cv" in label or "upload" in label
-                                                   or "select files" in label or "file" in label):
+                wanted = (any(w in label for w in ("resume", "cv", "upload", "file", "attach", "drop"))
+                          and not any(w in label for w in ("cover", "transcript", "portfolio")))
+                if resume_pdf and not already and wanted:
                     field.set_input_files(resume_pdf)
                     log("  ✓ uploaded tailored resume PDF")
                 continue
@@ -221,6 +222,8 @@ PAGE_SIGNATURE = r"""() => {
     labels: [...new Set(labels)].sort(),
     password: !!document.querySelector('input[type=password]'),
     menuOpen: !!document.querySelector('[role="listbox"] [role="option"]'),
+    // Upload boxes count too: the "Autofill with Resume" page has nothing else.
+    files: document.querySelectorAll('input[type=file]').length,
   };
 }"""
 
@@ -325,9 +328,10 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
 
         # Only fill real application pages: never sign-in pages, never the
         # job posting itself, and only once the page has stopped changing.
-        on_application = ("/apply" in page.url and not sig["password"] and sig["labels"]
+        on_application = ("/apply" in page.url and not sig["password"]
+                          and (sig["labels"] or sig["files"])
                           and not sig["menuOpen"])   # a dropdown is open: you're busy, wait
-        fingerprint = (page.url, sig["step"], tuple(sig["labels"]))
+        fingerprint = (page.url, sig["step"], tuple(sig["labels"]), sig["files"])
         if fingerprint != last_seen:
             last_seen, stable_since = fingerprint, time.time()
         settled = time.time() - stable_since >= 1.5
@@ -352,7 +356,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
                 print(f"  ! Couldn't fill this page ({e.__class__.__name__}). Fill it in yourself.")
             try:   # remember the page as it looks AFTER filling
                 after = page.evaluate(PAGE_SIGNATURE)
-                last_filled = (page.url, after["step"], tuple(after["labels"]))
+                last_filled = (page.url, after["step"], tuple(after["labels"]), after["files"])
             except Exception:
                 last_filled = fingerprint
             last_seen = last_filled
