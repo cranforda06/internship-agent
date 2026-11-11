@@ -28,9 +28,21 @@ Already prepared today? `python main.py home` opens just the home page.
 Each page then fills itself a moment after it loads; check it and click *Next* yourself.
 The home page also has *Fill this page again* and *Upload resume again* buttons.
 
-**Run it automatically:** `python main.py schedule --time 7:00` runs `prepare`
+**Closed the browser window by accident?** A new one opens for the next job.
+Click *Not yet* on the home page to keep the job you were on.
+
+**Run it automatically:** `python main.py schedule --time 10:00` runs `prepare`
 every weekday and sends a notification when jobs are ready (even if your Mac was
-asleep or off). `--off` turns it off.
+asleep or off). It never applies to anything. `--off` turns it off.
+
+## How jobs are picked, and what it costs
+
+- Only postings from the **last 30 days**, newest first. Richmond and DC jobs go first.
+- Each run **tops your list up to 15** jobs (waiting for review + ready to apply), so if
+  jobs pile up, it makes fewer new ones.
+- Scoring costs about 1¢ per job and tailoring about 7–8¢, so a full day is about **$1–2**.
+  Each run's cost is shown at the end, and `python main.py schedule` shows the last one.
+- Only a few new matching jobs are posted each day, so after the first week expect fewer than 15.
 
 ## Other commands
 
@@ -49,6 +61,10 @@ asleep or off). `--off` turns it off.
 
 Run `python main.py --help` to see every command.
 
+**Applying in the terminal instead** (`python main.py apply`): after each job type
+`y` submitted, `n` later, `s` skip, or `v` to view the resume. On Workday jobs:
+`d` done with the job, `u` upload the resume again, Enter to fill the page again.
+
 ## Setup
 
 ```bash
@@ -59,12 +75,15 @@ python -m playwright install chromium
 
 1. Copy `.env.example` to `.env` and add your Anthropic API key.
 2. Put your resume in `data/resume.md`.
-3. Fill in your standard answers in `data/profile.yaml` (created the first time you run `apply`).
+3. Fill in your standard answers in `data/profile.yaml` (created the first time you run `apply`
+   or `home`). Anything left blank is left for you on forms, so the more you fill in,
+   the more fills itself.
 
 Settings like how many jobs per day, preferred locations, and keywords are in `config.yaml`.
 
 ## Privacy
 
 - Your resume, profile, tracker, and API key stay on your computer and are never committed to git.
-- Demographic answers (race, gender, veteran, disability) are never sent to Claude.
+- Demographic answers (race, gender, veteran, disability, pronouns) are matched on your
+  computer and never sent to Claude.
 - The agent never clicks Submit, never stores passwords, and leaves essays and consent boxes for you.
