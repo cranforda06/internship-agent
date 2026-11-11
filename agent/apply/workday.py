@@ -213,13 +213,34 @@ def fill_page(page, questions, answers, resume_pdf, log=print):
 PAGE_SIGNATURE = r"""() => {
   const clean = t => (t || '').replace(/\s+/g, ' ').trim();
   const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  const textOf = el => el ? clean(el.innerText || el.textContent) : '';
   const step = document.querySelector('[data-automation-id="progressBarActiveStep"], h2');
-  // Only the questions' own labels, not error messages or dropdown contents,
-  // so the agent's own clicking doesn't look like a new page.
-  const labels = [...document.querySelectorAll(
-      '[data-automation-id^="formField"] > label, [data-automation-id^="formField"] legend, fieldset > legend, label[for]')]
-    .filter(l => (l.offsetWidth || l.offsetHeight) && !l.closest('[role="listbox"]'))
-    .map(l => clean(l.innerText).replace(/\*/g, '')).filter(Boolean);
+  // Each visible question's label, found the same way READ_PAGE finds it
+  // (Workday nests labels differently from company to company). Dropdown
+  // contents are ignored, so the agent's own clicking doesn't look like a new page.
+  const labelFor = el => {
+    const box = el.closest('[data-automation-id^="formField"], fieldset');
+    const lab = box && box.querySelector('label, legend');
+    if (lab && textOf(lab)) return textOf(lab);
+    if (el.id) {
+      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l) return textOf(l);
+    }
+    const by = el.getAttribute('aria-labelledby');
+    if (by) {
+      const t = clean(by.split(' ').map(id => textOf(document.getElementById(id))).join(' '));
+      if (t) return t;
+    }
+    return clean(el.getAttribute('aria-label'));
+  };
+  const skipTypes = ['hidden', 'submit', 'button', 'reset', 'image', 'password', 'file', 'search'];
+  const labels = [...document.querySelectorAll('input, textarea, button[aria-haspopup="listbox"]')]
+    .filter(el => !el.closest('[role="listbox"]')
+                  && (el.tagName === 'BUTTON' || !skipTypes.includes((el.type || '').toLowerCase())))
+    .filter(el => shown(el) || ((el.type === 'radio' || el.type === 'checkbox')
+                                && shown(el.closest('[data-automation-id^="formField"], fieldset, label') || el)))
+    .map(el => labelFor(el).replace(/\*/g, '').trim()).filter(Boolean);
+  // Also notice the upload page, whose only field is a hidden file box.
   return {
     step: step ? clean(step.innerText) : '',
     labels: [...new Set(labels)].sort(),
@@ -229,6 +250,7 @@ PAGE_SIGNATURE = r"""() => {
     menuOpen: [...document.querySelectorAll('[role="listbox"] [role="option"]')].some(shown),
     // Upload boxes count too: the "Autofill with Resume" page has nothing else.
     files: document.querySelectorAll('input[type=file]').length,
+    inputs: [...document.querySelectorAll('input, textarea, button[aria-haspopup="listbox"]')].filter(shown).length,
   };
 }"""
 
@@ -264,6 +286,28 @@ def _fill_new_fields(page, attempted, claude, model, profile, resume_text, resum
         for q in left:
             log(f"    - {q.label[:90]}")
     log("  Check the page, then click Next in the browser.")
+
+
+# What a page's fields look like (types, labels, Workday ids), never their
+# values. Saved to the apply log when the agent can't find questions on a page.
+DESCRIBE_PAGE = r"""() => [...document.querySelectorAll('input, textarea, select, button[aria-haspopup]')]
+  .filter(el => el.offsetWidth || el.offsetHeight).slice(0, 25).map(el => {
+    const box = el.closest('[data-automation-id]');
+    return [el.tagName.toLowerCase(), el.type || '', el.getAttribute('aria-label') || '',
+            el.getAttribute('aria-labelledby') ? 'labelledby' : '', el.id ? 'id' : '',
+            box ? box.getAttribute('data-automation-id') : ''].join(' | ');
+  })"""
+
+
+def _describe_page(page):
+    from agent.apply import history
+    try:
+        rows = page.evaluate(DESCRIBE_PAGE)
+    except Exception:
+        return
+    history.write(f"  page with fields but no questions found: {page.url}")
+    for row in rows:
+        history.write(f"    {row}")
 
 
 def _print_keyboard_help():
@@ -310,6 +354,7 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
     current_page, attempted, last_seen, stable_since, rounds = None, set(), None, 0.0, 0
     last_filled = None   # the page state we last filled, so we don't keep re-checking it
     last_reason = None   # why we're waiting right now, if we are
+    waiting_since, described = time.time(), False
     started = time.time()
     while time_limit is None or time.time() - started < time_limit:
         try:
@@ -356,6 +401,13 @@ def assist(page, url, claude, model, profile, resume_text, resume_pdf, log=print
             reason = None
         if reason and reason != last_reason:
             log(f"  ({reason})")
+            waiting_since = time.time()
+        if (reason == "Waiting for the next page to load..." and sig["inputs"] and not described
+                and time.time() - waiting_since > 8):
+            _describe_page(page)   # it has fields but we found no questions: note why
+            described = True
+        if reason is None:
+            described = False
         last_reason = reason
         fingerprint = (page.url, sig["step"], tuple(sig["labels"]), sig["files"])
         if fingerprint != last_seen:

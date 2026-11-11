@@ -491,3 +491,25 @@ def test_sites_we_dont_fill_open_in_your_normal_browser(monkeypatch, apply_log_i
     assert opened == ["https://jobs.smartrecruiters.com/X/1"]
     assert "NBCUniversal - Ops Intern (other)" in apply_log_in_tmp.read_text()
     t.close()
+
+
+def test_workday_nested_labels_still_get_filled(tmp_path, browser_page):
+    """Some companies' Workday nests the label deeper and doesn't link it with for=."""
+    import queue
+    from agent.apply import workday
+    folder = tmp_path / "apply"
+    folder.mkdir()
+    (folder / "info.html").write_text("""<html><body><h2>My Information</h2>
+      <div data-automation-id="formField-addressLine1">
+        <div class="labelWrap"><label id="l1">Address Line 1<abbr>*</abbr></label></div>
+        <div><input id="a1" aria-labelledby="l1"></div></div>
+      <div data-automation-id="formField-city">
+        <div><label id="l2">City</label></div><div><input id="c1" aria-labelledby="l2"></div></div>
+      </body></html>""")
+
+    claude = LabelClaude({"Address Line 1": "Richmond", "City": "Richmond"})
+    workday.assist(browser_page, (folder / "info.html").as_uri(), claude, "m", PROFILE, "", None,
+                   log=lambda m: None, poll_seconds=0.2, typed=queue.Queue(), time_limit=6)
+
+    assert browser_page.input_value("#a1") == "Richmond"
+    assert browser_page.input_value("#c1") == "Richmond"
