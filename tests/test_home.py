@@ -93,3 +93,13 @@ def test_buttons_do_nothing_at_the_wrong_time(tmp_path):
     click(client, "/finish")                        # can't finish in the middle of a job
     assert not session.finished
     t.close()
+
+
+def test_lists_show_most_recently_posted_first(tmp_path):
+    t, ids, client, _, _ = setup(tmp_path, statuses=("queued", "queued", "queued"))
+    t.update_details(ids[0], posted="2026-11-01")
+    t.update_details(ids[1], posted="2026-11-10")
+    t.update_details(ids[2], posted="2026-11-05")
+    home = client.get("/").get_data(as_text=True)
+    assert home.index("Company1") < home.index("Company2") < home.index("Company0")
+    t.close()

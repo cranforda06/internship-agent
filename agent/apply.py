@@ -60,7 +60,8 @@ def apply_in_terminal(tracker, only_ids=None):
         print("No approved jobs to apply to. Approve one first: python main.py home")
         return {}
     counts = {"submitted": 0, "later": 0, "skipped": 0}
-    for n, row in enumerate(reversed(rows), start=1):  # oldest approval first
+    from agent.review import newest_first
+    for n, row in enumerate(newest_first(rows), start=1):  # most recently posted first
         pdf = resume_pdf(row)
         print(f"\n[{n}/{len(rows)}] {row['company']} - {row['role']}")
         past = tracker.similar_application(row["company"], row["role"])

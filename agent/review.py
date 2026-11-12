@@ -97,6 +97,12 @@ def _short(location, limit=90):
     return location if len(location) <= limit else location[:limit].rsplit(";", 1)[0] + "; and more"
 
 
+def newest_first(rows):
+    """Most recently posted jobs first (best fit first among same-day posts).
+    Jobs with no posting date go last."""
+    return sorted(rows, key=lambda r: (r["posted"] or "", r["fit_score"] or 0), reverse=True)
+
+
 def form_button(action, label, cls, disabled=False):
     return (f"<form method='post' action='{action}' style='display:inline'>"
             f"<input type='hidden' name='token' value='{TOKEN}'>"
@@ -177,10 +183,9 @@ def create_app(config, tracker, session=None):
         queued, approved = tracker.list_all(status="queued"), tracker.list_all(status="approved")
         busy = session.busy
         cards = [f"<div class='card now'>{session.panel_html()}</div>"]
-        # Oldest approval first, the same order `apply` uses.
-        cards += section("Ready to apply", list(reversed(approved)),
+        cards += section("Ready to apply", newest_first(approved),
                          lambda r: form_button(f"/apply/{r['id']}", "Apply", "approve", disabled=busy))
-        cards += section("Waiting for your review", queued)
+        cards += section("Waiting for your review", newest_first(queued))
         cards.append("<div class='card row'><span>Done for today? Jobs you didn't get to stay here "
                      "for next time.</span>"
                      + form_button("/finish", "Finish for today", "skip", disabled=busy) + "</div>")
