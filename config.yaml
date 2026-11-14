@@ -57,6 +57,18 @@ search:
     - analyst
     - strategy
     - operations
+    # Added 2026-11-14: close to BA/IS work, scored by Claude like the rest
+    - product management
+    - product manager
+    - product
+    - insights
+    - analysis
+    - applications
+    - application development
+    - information management
+    - knowledge management
+    - statistics
+    - GIS
 
   # ...and none of these. These are roles that need a different background
   # (CS, engineering, PhD research, quant finance).
@@ -95,7 +107,7 @@ search:
 
   # Skip postings older than this many days (newer = fewer applicants and
   # less chance it's already filled). Jobs with no post date are kept.
-  max_posting_age_days: 30
+  max_posting_age_days: 14
 
   # Every job is labeled: official hiring system (Workday, Greenhouse...),
   # the company's own site, or "unverified". true = drop unverified ones;
@@ -155,6 +167,11 @@ greenhouse_boards:
   - carvana
   - samsara
   - sigmacomputing
+  - airbnb
+  - coinbase
+  - doordashusa
+  - riotgames
+  - later
 lever_boards:
   - palantir      # big DC/Virginia presence
   - zoox
