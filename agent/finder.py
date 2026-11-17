@@ -8,10 +8,11 @@
 
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 from agent.filters import JobFilter
 from agent.jobs import Job
-from agent.sources import greenhouse, lever, simplify
+from agent.sources import greenhouse, lever, simplify, workday
 from agent.sources.descriptions import fetch_description, site_name
 from agent.tracker import DuplicateError
 
@@ -45,6 +46,27 @@ def gather_jobs(config, log=print):
     for board in config.get("lever_boards", []):
         total += collect(f"Lever board '{board}'", lambda: lever.fetch_board(board), "lever")
     log(f"  Greenhouse/Lever company boards: {total} jobs (all kinds, not just internships)")
+
+    # Workday sites are checked a few at a time; each needs a few searches.
+    sites = config.get("workday_sites") or {}
+    max_age = config["search"].get("max_posting_age_days") or 30
+
+    def fetch_workday(item):
+        site, company = item
+        try:
+            return workday.fetch_site(site, company, max_age_days=max_age), None
+        except Exception as e:
+            return [], f"  ! Couldn't load Workday site for {company}: {e}"
+
+    total = 0
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for found, error in pool.map(fetch_workday, sites.items()):
+            if error:
+                log(error)
+            jobs.extend(found)
+            total += len(found)
+    if sites:
+        log(f"  Workday company sites: {total} recent postings from {len(sites)} companies")
     return jobs, failed
 
 

@@ -134,6 +134,9 @@ def normalize_link(link):
     )
     host = parts.netloc.lower().removeprefix("www.")
     path = parts.path.rstrip("/")
+    if host.endswith("myworkdayjobs.com"):
+        # The same Workday job can be linked with or without "/en-US".
+        path = re.sub(r"^/[a-z]{2}-[A-Z]{2}(?=/)", "", path)
     return urlunsplit(("https", host, path, urlencode(params), ""))
 
 

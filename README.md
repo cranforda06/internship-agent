@@ -28,8 +28,8 @@ and sends a notification. It never applies. `--off` turns it off.
 
 ## Good to know
 
-- Only postings from the last 30 days, newest first, Richmond and DC first.
-- It keeps up to 15 jobs ready for you, at about $1–2 a day in API credits. Applying is free.
+- Only postings from the last 14 days, newest first, Richmond and DC first.
+- It keeps up to 25 jobs ready for you, at about $1–2 a day in API credits. Applying is free.
 - Every tailored resume is saved in `output/resumes/`. `python main.py list` shows which
   one you sent to each job.
 

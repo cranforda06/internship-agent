@@ -176,6 +176,28 @@ lever_boards:
   - palantir      # big DC/Virginia presence
   - zoox
   - shieldai
+# Workday career sites: "<start of the job links>: <company name>".
+# To add a company, open one of its Workday job links and copy the part
+# before "/job/", leaving out "en-US/" if it's there.
+workday_sites:
+  capitalone.wd12.myworkdayjobs.com/Capital_One: Capital One
+  bah.wd1.myworkdayjobs.com/bah_jobs: Booz Allen
+  caci.wd1.myworkdayjobs.com/external: CACI
+  gdit.wd5.myworkdayjobs.com/gdit_earlytalent: General Dynamics Information Technology
+  icf.wd5.myworkdayjobs.com/icfexternal_career_site: ICF International
+  freddiemac.wd5.myworkdayjobs.com/External: Freddie Mac
+  gnw.wd1.myworkdayjobs.com/GNW: Genworth Financial
+  sallie-mae.wd5.myworkdayjobs.com/Careers: Sallie Mae
+  rb.wd5.myworkdayjobs.com/FRS: The Federal Reserve System
+  costar.wd1.myworkdayjobs.com/Costar_Campus: CoStar Group
+  fticonsulting.wd108.myworkdayjobs.com/FTIConsultingCareers: FTI Consulting
+  hilbgroup.wd5.myworkdayjobs.com/HG-Careers: Hilb Group
+  radiancetech.wd12.myworkdayjobs.com/Radiance_External: Radiance Technologies
+  aero.wd5.myworkdayjobs.com/external: The Aerospace Corporation
+  snc.wd1.myworkdayjobs.com/snc_external_career_site: Sierra Nevada Corporation
+  thales.wd3.myworkdayjobs.com/Careers: Thales
+  leonardocompany.wd3.myworkdayjobs.com/LeonardoCareerSite: Leonardo
+  globalhr.wd5.myworkdayjobs.com/rec_rtx_ext_gateway: RTX
 
 # --- Phase 2: scoring with Claude --------------------------------------------
 scoring:
@@ -195,7 +217,7 @@ tailoring:
 
 daily:
   # How many tailored applications "prepare" gets ready for you each day.
-  queue_size: 15
+  queue_size: 25
   # Tailored jobs with a fit score at or above this are approved automatically
   # (no review page); they go straight to "apply", where you still click Submit.
   # Lower scores still go to the review page. Delete this line to turn it off.

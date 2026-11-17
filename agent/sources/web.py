@@ -2,6 +2,7 @@
 
 import html
 import re
+import time
 
 import requests
 
@@ -9,11 +10,24 @@ import requests
 HEADERS = {"User-Agent": "internship-agent/0.1"}
 
 
+def request(method, url, tries=4, **kwargs):
+    """Make a web request, waiting and trying again if the site says we're
+    asking too often ("429 Too Many Requests"). Raises an error if it fails."""
+    kwargs.setdefault("timeout", 20)
+    kwargs["headers"] = {**HEADERS, **kwargs.get("headers", {})}
+    for attempt in range(tries):
+        response = requests.request(method, url, **kwargs)
+        if response.status_code != 429 or attempt == tries - 1:
+            break
+        wait = response.headers.get("Retry-After", "")
+        time.sleep(min(int(wait), 30) if wait.isdigit() else 2 * 2 ** attempt)  # 2, 4, 8 seconds
+    response.raise_for_status()  # turns "404 Not Found" etc. into an error
+    return response
+
+
 def get_json(url, timeout=20):
     """Download a URL and return its JSON data. Raises an error if it fails."""
-    response = requests.get(url, headers=HEADERS, timeout=timeout)
-    response.raise_for_status()  # turns "404 Not Found" etc. into an error
-    return response.json()
+    return request("GET", url, timeout=timeout).json()
 
 
 def html_to_text(raw):
