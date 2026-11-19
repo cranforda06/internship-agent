@@ -1,17 +1,10 @@
-# Settings for the internship agent. Edit these freely.
-
-# Where your files live (relative to the project folder).
 resume_path: data/resume.md
 tracker_path: data/applications.db
 
-# The term you're applying for.
 target_term: Summer 2027
 
-# --- Phase 2: finding internships -------------------------------------------
 search:
-  # A job title must contain at least one of these (whole words, any case)...
   include_keywords:
-    # Your core targets
     - business analyst
     - business analysis
     - business systems
@@ -47,7 +40,6 @@ search:
     - governance
     - cybersecurity
     - deployment strategist
-    # Also OK (scored a bit lower than the core targets)
     - data analyst
     - data analytics
     - business analytics
@@ -57,7 +49,6 @@ search:
     - analyst
     - strategy
     - operations
-    # Added 2026-11-14: close to BA/IS work, scored by Claude like the rest
     - product management
     - product manager
     - product
@@ -70,8 +61,6 @@ search:
     - statistics
     - GIS
 
-  # ...and none of these. These are roles that need a different background
-  # (CS, engineering, PhD research, quant finance).
   exclude_keywords:
     - software engineer
     - software engineering
@@ -102,22 +91,13 @@ search:
     - data science
     - data scientist
 
-  # Skip internships located only outside the US.
   us_only: true
 
-  # Skip postings older than this many days (newer = fewer applicants and
-  # less chance it's already filled). Jobs with no post date are kept.
   max_posting_age_days: 14
 
-  # Every job is labeled: official hiring system (Workday, Greenhouse...),
-  # the company's own site, or "unverified". true = drop unverified ones;
-  # false = keep them but show a warning on the review page.
   only_verified_sites: false
 
-  # You'll relocate, but these areas come first: they get a star, a score
-  # bonus, and are scored before other jobs. Matched anywhere in the location.
   preferred_locations:
-    # Richmond area
     - Richmond
     - Glen Allen
     - Henrico
@@ -125,7 +105,6 @@ search:
     - Chesterfield
     - Mechanicsville
     - Short Pump
-    # DC area
     - Washington, DC
     - Washington DC
     - Washington, D.C.
@@ -150,10 +129,8 @@ search:
     - Fort Meade
   preferred_location_bonus: 10
 
-# Company job boards to check directly, besides the SimplifyJobs list.
-# The name is the part after greenhouse.io/ or jobs.lever.co/ in a job link.
 greenhouse_boards:
-  - appian        # McLean, VA
+  - appian
   - stripe
   - robinhood
   - coinbase
@@ -173,12 +150,9 @@ greenhouse_boards:
   - riotgames
   - later
 lever_boards:
-  - palantir      # big DC/Virginia presence
+  - palantir
   - zoox
   - shieldai
-# Workday career sites: "<start of the job links>: <company name>".
-# To add a company, open one of its Workday job links and copy the part
-# before "/job/", leaving out "en-US/" if it's there.
 workday_sites:
   capitalone.wd12.myworkdayjobs.com/Capital_One: Capital One
   bah.wd1.myworkdayjobs.com/bah_jobs: Booz Allen
@@ -199,31 +173,20 @@ workday_sites:
   leonardocompany.wd3.myworkdayjobs.com/LeonardoCareerSite: Leonardo
   globalhr.wd5.myworkdayjobs.com/rec_rtx_ext_gateway: RTX
 
-# --- Phase 2: scoring with Claude --------------------------------------------
 scoring:
   model: claude-opus-5-5
-  # How hard Claude thinks: low, medium, high. Higher = better but costs more.
   effort: low
-  # Jobs scoring below this (0-100) are marked "skipped".
   min_fit_score: 65
-  # Most jobs to score in one run, unless you pass --limit. Protects your credits.
   default_limit: 10
 
-# --- Phase 3: tailoring + daily queue ----------------------------------------
 tailoring:
   model: claude-opus-5-5
-  effort: high           # how hard Claude works on the rewrite
-  check_effort: medium   # how hard the truthfulness check works
+  effort: high
+  check_effort: medium
 
 daily:
-  # How many tailored applications "prepare" gets ready for you each day.
   queue_size: 25
-  # Tailored jobs with a fit score at or above this are approved automatically
-  # (no review page); they go straight to "apply", where you still click Submit.
-  # Lower scores still go to the review page. Delete this line to turn it off.
   auto_approve_min_fit: 75
-  # Most jobs "prepare" will score in one run while looking for good matches.
   max_to_score: 40
 
-# Where tailored resumes are saved (one folder per job).
 output_dir: output/resumes

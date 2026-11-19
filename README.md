@@ -1,65 +1,73 @@
 # internship-agent
 
-Finds internships that fit your resume and tailors your resume to each one.
-**You fill in and submit every application yourself.** It never makes up experience.
+A personal job-search pipeline that finds internships, ranks them against my resume,
+and produces a tailored, fact-checked resume for each one. I review and submit every
+application myself.
 
-## Every day
+## What it does
 
-```bash
-source venv/bin/activate
-python main.py go
-```
+1. **Find.** Pulls new postings every weekday from the SimplifyJobs internship list and
+   directly from company career sites on Greenhouse, Lever, and Workday. Keyword
+   filters drop non-internships, the wrong term, non-US roles, and anything older
+   than 14 days.
+2. **Score.** An LLM rates each posting 0–100 against my resume, with strengths and
+   gaps. Jobs below a minimum are skipped; preferred locations get a small bonus.
+3. **Tailor.** For each good match, the LLM rewrites the resume around the posting's
+   key requirements: reordering, rewording, and trimming only.
+4. **Fact-check.** Every tailored resume goes through two checks before I see it:
+   - a second LLM pass that flags anything fabricated or exaggerated
+   - plain Python checks that every number, job title, company, date, and contact
+     line matches the original exactly
+5. **Review and apply.** A local web page lists the matches, shows each tailored
+   resume with every change highlighted, and shows the fit score before and after
+   tailoring. Clicking *Apply* opens the real application and hands me the PDF. The
+   agent never fills in or submits anything.
+6. **Track.** A SQLite tracker records every application and which resume version was
+   sent, and blocks duplicate applications to the same job.
 
-`python main.py go` gets today's jobs ready (skipped if the schedule already did it),
-then opens the **home page** in your browser:
+## Design choices
 
-1. **Waiting for your review:** click *Open* on a job, then *Approve* or *Skip* it.
-2. **Ready to apply:** click *Apply*. The application opens in a new tab and your
-   tailored resume pops up in Finder. Drag it into the upload box, fill out the
-   application, and click Submit yourself.
-3. Back on the home page, click *I submitted it*, *Not yet*, or *Skip*.
-4. Click **Finish for today** when you're done.
+- **Truthful by construction.** The tailoring step can't add skills, numbers, or
+  titles. Anything it tries to invent is caught by code and shown on the review page.
+- **A human in the loop.** Nothing is sent without my approval, and I submit every
+  application.
+- **Reputable sources only.** Public, read-only job feeds from the hiring systems
+  themselves. No scraping of LinkedIn or Indeed, and it backs off when a site asks it
+  to slow down.
+- **Cheap to run.** Finding is free. Scoring and tailoring cost about $1–2 a day in API
+  credits, and every run prints its cost.
 
-`python main.py home` opens the home page without getting new jobs first.
-Keep the terminal open while you work.
+## Tech
 
-**Schedule:** `python main.py schedule --time 10:00` gets jobs ready every weekday
-and sends a notification. It never applies. `--off` turns it off.
+Python 3.12 · Anthropic API · Flask · SQLite · Playwright (PDF rendering) ·
+python-docx · pytest · macOS launchd (weekday schedule)
 
-## Good to know
+## Project layout
 
-- Only postings from the last 14 days, newest first, Richmond and DC first.
-- It keeps up to 25 jobs ready for you, at about $1–2 a day in API credits. Applying is free.
-- Every tailored resume is saved in `output/resumes/`. `python main.py list` shows which
-  one you sent to each job.
-
-## Other commands
-
-| Command | What it does |
+| Path | Purpose |
 |---|---|
-| `python main.py today` | What was found and tailored today |
-| `python main.py jobs` | Best matches |
-| `python main.py show 42` | Everything about job #42 |
-| `python main.py list` | Your applications |
-| `python main.py add` | Add an application you made yourself |
-| `python main.py status 42 interview` | Update a job's status |
+| `agent/sources/` | SimplifyJobs, Greenhouse, Lever, and Workday feeds |
+| `agent/filters.py`, `agent/finder.py` | Keyword filters and the find step |
+| `agent/scorer.py` | Fit scoring |
+| `agent/tailor.py` | Tailoring and the truthfulness checks |
+| `agent/render.py` | Resume → PDF and Word |
+| `agent/review.py`, `agent/home.py` | The local review and apply page |
+| `agent/tracker.py` | SQLite tracker and duplicate detection |
+| `agent/schedule.py` | Weekday schedule |
+| `tests/` | 70 tests (no network or API calls) |
 
-Run `python main.py --help` to see every command.
-
-## Setup
+## Running it
 
 ```bash
 python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-python -m playwright install chromium   # used to make the resume PDFs
+python -m playwright install chromium
+cp .env.example .env          # add an Anthropic API key
+# put your resume in data/resume.md (see config.yaml for search settings)
+
+python main.py go             # get today's jobs ready and open the review page
+python main.py --help         # every command
 ```
 
-1. Copy `.env.example` to `.env` and add your Anthropic API key.
-2. Put your resume in `data/resume.md`.
-
-Other settings are in `config.yaml`.
-
-## Privacy
-
-- Your resume, tracker, and API key stay on your computer.
-- The agent never touches your applications: you fill in and submit each one.
+Personal data (resume, tracker, generated resumes, API key) stays on the local machine
+and is excluded from git.

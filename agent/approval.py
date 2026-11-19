@@ -1,21 +1,9 @@
-"""Automatic approval for strong matches.
-
-Tailored ("queued") jobs whose fit score is at or above
-config["daily"]["auto_approve_min_fit"] are approved without the review page,
-so they go straight to "python main.py apply", where you still check the
-form and the resume and click Submit yourself.
-
-A strong match is still sent to the review page instead if anything about
-it needs a human look (see reasons_to_review).
-"""
-
 import json
 
 from agent.sources.trust import classify
 
 
 def reasons_to_review(tracker, row):
-    """Why this job should go to the review page instead. Empty = safe to auto-approve."""
     reasons = []
     report = json.loads(row["tailor_report"] or "{}")
     fit = json.loads(row["fit_summary"] or "{}")
@@ -31,7 +19,6 @@ def reasons_to_review(tracker, row):
 
 
 def auto_approve(config, tracker, log=print):
-    """Approve qualifying queued jobs. Returns (approved rows, rows kept for review)."""
     threshold = config.get("daily", {}).get("auto_approve_min_fit")
     if threshold is None:
         return [], []

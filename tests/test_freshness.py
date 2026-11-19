@@ -1,5 +1,3 @@
-"""Tests for recency (posting age, closed jobs) and source checks."""
-
 from datetime import date
 
 from agent.filters import JobFilter, age_text, posting_age_days
@@ -36,7 +34,7 @@ def test_source_classification():
     assert classify("https://lifeattiktok.com/search/123", "TikTok")[0] == "company_site"
     assert classify("https://careers.hfsinclair.com/job/1", "HF Sinclair")[0] == "company_site"
     assert classify("https://jobs-hiring-now.example.net/apply", "Acme")[0] == "unverified"
-    assert classify("http://acme.wd1.myworkdayjobs.com/x", "Acme")[0] == "unverified"   # not https
+    assert classify("http://acme.wd1.myworkdayjobs.com/x", "Acme")[0] == "unverified"
 
 
 def test_only_verified_sites_option():
@@ -48,7 +46,7 @@ def test_only_verified_sites_option():
 def test_scored_jobs_that_get_too_old_are_skipped(tmp_path):
     t = Tracker(tmp_path / "t.db")
     old = t.add("Acme", "Business Analyst Intern", status="found", posted="2026-09-01", source="simplify")
-    t.update_details(old, fit_score=80)                     # scored, but now too old
+    t.update_details(old, fit_score=80)
     new = t.add("Globex", "Business Analyst Intern", status="found", posted="2026-11-01", source="simplify")
     assert refilter_found(t, JobFilter(SEARCH, "Summer 2027", today=TODAY)) == 1
     assert t.get(old)["status"] == "skipped" and t.get(new)["status"] == "found"
@@ -62,9 +60,9 @@ def test_closed_jobs_are_detected_only_when_source_loaded(tmp_path):
     approved = t.add("Initech", "Analyst Intern", link="https://a.com/3", status="approved", source="simplify")
     listed = [Job("Acme", "Analyst Intern", "https://a.com/1", "", "simplify")]
 
-    assert mark_closed(t, listed, failed={"simplify"}) == 0   # download failed: change nothing
+    assert mark_closed(t, listed, failed={"simplify"}) == 0
     assert mark_closed(t, listed, failed=set()) == 1
     assert t.get(still_open)["status"] == "found"
     assert t.get(gone)["status"] == "skipped"
-    assert t.get(approved)["status"] == "approved"            # your approvals are left alone
+    assert t.get(approved)["status"] == "approved"
     t.close()

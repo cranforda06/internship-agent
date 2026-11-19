@@ -1,14 +1,7 @@
-"""One shared way to ask Claude a question and get a structured answer back.
-
-Used by scoring (Phase 2) and resume tailoring (Phase 3). It also keeps a
-running total of tokens used so each command can print what it cost.
-"""
-
 import json
 
 import anthropic
 
-# Price per million tokens (input, output) in US dollars.
 PRICES = {
     "claude-opus-5-5": (4.00, 20.00),
     "claude-sonnet-5-5": (2.00, 10.00),
@@ -17,7 +10,7 @@ PRICES = {
 
 
 class ClaudeError(Exception):
-    """Claude couldn't produce a usable answer (declined, cut off, bad format)."""
+    pass
 
 
 class Claude:
@@ -26,19 +19,15 @@ class Claude:
         self.cost_so_far = 0.0
         self.input_tokens = 0
         self.output_tokens = 0
-        self.priced = True  # False if a model's price is unknown
+        self.priced = True
 
     def ask(self, model, system, prompt, schema, effort="medium", max_tokens=16000):
-        """Send one request and return Claude's answer as a Python dict
-        matching `schema` (a JSON schema)."""
         response = self.client.beta.messages.create(
             model=model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": prompt}],
             output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-            # If Claude's safety filter wrongly declines a request, the API
-            # retries it on a fallback model automatically.
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )

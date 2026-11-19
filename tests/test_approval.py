@@ -1,5 +1,3 @@
-"""Tests for automatic approval of strong matches."""
-
 import json
 
 from agent.approval import auto_approve

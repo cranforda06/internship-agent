@@ -1,9 +1,3 @@
-"""Tests for the tracker. Run them with:  pytest
-
-Each test gets a fresh, empty database in a temporary folder (tmp_path),
-so tests never touch your real data/applications.db.
-"""
-
 import pytest
 
 from agent.tracker import DuplicateError, Tracker, normalize_link, normalize_role
@@ -46,13 +40,13 @@ def test_greenhouse_job_ids_are_kept_but_tracking_is_dropped():
     a = normalize_link("https://acme.com/careers?gh_jid=111&utm_source=linkedin")
     b = normalize_link("https://www.acme.com/careers/?gh_jid=111")
     c = normalize_link("https://acme.com/careers?gh_jid=222")
-    assert a == b      # same job, different tracking junk
-    assert a != c      # different job IDs must NOT match
+    assert a == b
+    assert a != c
 
 
 def test_role_cleanup():
     assert normalize_role("IT Intern, Summer 2027") == "it"
-    assert normalize_role("Systems Analyst Internship") == "analyst systems"  # sorted
+    assert normalize_role("Systems Analyst Internship") == "analyst systems"
 
 
 def test_find_existing_returns_none_for_new_job(tracker):
@@ -64,7 +58,7 @@ def test_update_status(tracker):
     tracker.update_status(app_id, "applied")
     row = tracker.list_all()[0]
     assert row["status"] == "applied"
-    assert row["date_applied"] is not None  # applying fills in the date
+    assert row["date_applied"] is not None
 
 
 def test_import_csv(tracker, tmp_path):
@@ -72,8 +66,8 @@ def test_import_csv(tracker, tmp_path):
     csv_file.write_text(
         "company,role,link,date,status\n"
         "Acme,Data Analyst Intern,,10/15/2026,applied\n"
-        "Acme Inc,data analyst intern,,,\n"          # duplicate of line 2
-        "Globex,IT Intern,,not-a-date,applied\n"      # bad date
+        "Acme Inc,data analyst intern,,,\n"
+        "Globex,IT Intern,,not-a-date,applied\n"
         "Initech,Business Analyst Intern,,2026-09-01,rejected\n"
     )
     added, duplicates, errors = tracker.import_csv(csv_file)
@@ -85,7 +79,6 @@ def test_import_csv(tracker, tmp_path):
 
 
 def test_job_ids_are_ignored_when_matching():
-    # The same job, with and without the company's internal ID numbers.
     assert normalize_role("R171828 2027 Intern - Digital Strategy Analyst") == \
            normalize_role("Digital Strategy Analyst Intern")
     assert normalize_role("Business and Technology Intern (Req ID 216186)") == \
@@ -104,12 +97,11 @@ def test_keys_refresh_when_tracker_reopens(tmp_path):
     db = tmp_path / "test.db"
     t = Tracker(db)
     t.add("Acme", "R12345 Data Analyst Intern")
-    # Pretend this row was saved under older, stale cleanup rules.
     t.conn.execute("UPDATE applications SET role_key = 'stale'")
     t.conn.commit()
     t.close()
 
-    t = Tracker(db)  # reopening recomputes the keys
+    t = Tracker(db)
     assert t.find_existing("Acme", "Data Analyst Intern") is not None
     t.close()
 
@@ -123,13 +115,9 @@ def test_similar_application_and_company_prefix(tmp_path):
     t = Tracker(tmp_path / "t.db")
     t.add("Navy Federal Credit Union", "Summer Associate Internship (Business Systems Analyst) - 32314")
     t.add("VCU Health", "R42650 Student Intern - IT", status="rejected")
-    # Shorter company name + shorter title -> probably the same job.
     assert t.similar_application("Navy Federal", "Business Systems Analyst Intern") is not None
-    # Different job at the same company -> not flagged.
     assert t.similar_application("Navy Federal", "Credit Risk Analyst Intern") is None
-    # A one-word title is too vague to call a match.
     assert t.similar_application("Navy Federal", "Analyst Intern") is None
-    # A different company that shares a word -> not flagged.
     assert t.similar_application("Federal Reserve", "Business Systems Analyst Intern") is None
     t.close()
 

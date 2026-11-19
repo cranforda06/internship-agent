@@ -1,8 +1,3 @@
-"""Tests for the home page: reviewing, and Apply / I submitted it / Later / Skip.
-
-Opening the browser and Finder is swapped for a fake, so nothing opens.
-"""
-
 import json
 
 from agent import review
@@ -39,8 +34,8 @@ def click(client, path):
 def test_review_approve_needs_token(tmp_path):
     t, (job,), client, _, _ = setup(tmp_path, statuses=("queued",))
     assert b"Company0" in client.get("/").data
-    assert b"was: - SQL" in client.get(f"/job/{job}").data      # reworded line shows the original
-    assert client.post(f"/job/{job}/approve").status_code == 403  # no token -> refused
+    assert b"was: - SQL" in client.get(f"/job/{job}").data
+    assert client.post(f"/job/{job}/approve").status_code == 403
     click(client, f"/job/{job}/approve")
     assert t.get(job)["status"] == "approved"
     t.close()
@@ -50,13 +45,13 @@ def test_apply_opens_the_job_then_submitted_and_skip(tmp_path):
     t, (first, second), client, session, opened = setup(tmp_path, statuses=("approved", "approved"))
     home = client.get("/").get_data(as_text=True)
     assert "Ready to apply (2)" in home
-    assert client.post(f"/apply/{first}").status_code == 403      # no token -> refused
+    assert client.post(f"/apply/{first}").status_code == 403
 
     click(client, f"/apply/{first}")
-    assert opened == ["https://example.com/0"]                    # opened in your browser
+    assert opened == ["https://example.com/0"]
     home = client.get("/").get_data(as_text=True)
     assert "I submitted it" in home and "drag it into the upload box" in home
-    assert "disabled" in home                                     # one job at a time
+    assert "disabled" in home
     click(client, "/now/outcome/y")
     assert t.get(first)["status"] == "applied"
 
@@ -85,12 +80,12 @@ def test_not_yet_keeps_the_job_and_resume_downloads(tmp_path):
 
 def test_buttons_do_nothing_at_the_wrong_time(tmp_path):
     t, (job,), client, session, opened = setup(tmp_path)
-    click(client, "/now/outcome/y")                 # nothing open: ignored
+    click(client, "/now/outcome/y")
     assert t.get(job)["status"] == "approved"
     click(client, f"/apply/{job}")
-    click(client, f"/apply/{job}")                  # double click opens it only once
+    click(client, f"/apply/{job}")
     assert len(opened) == 1
-    click(client, "/finish")                        # can't finish in the middle of a job
+    click(client, "/finish")
     assert not session.finished
     t.close()
 
@@ -108,13 +103,13 @@ def test_lists_show_most_recently_posted_first(tmp_path):
 def test_shows_fit_before_and_after_tailoring(tmp_path):
     t, (job,), client, _, _ = setup(tmp_path, statuses=("queued",))
     report = json.loads(t.get(job)["tailor_report"])
-    assert "→" not in client.get("/").get_data(as_text=True)      # not scored after tailoring yet
+    assert "→" not in client.get("/").get_data(as_text=True)
     report["tailored_fit_score"] = 87
     t.update_details(job, tailor_report=json.dumps(report))
     assert "fit 80 → 87 tailored" in client.get("/").get_data(as_text=True)
     page = client.get(f"/job/{job}").get_data(as_text=True)
     assert "Tailored resume</span><b>87</b>" in page and "+7" in page
-    report["tailored_fit_score"] = 77                              # within normal variation
+    report["tailored_fit_score"] = 77
     t.update_details(job, tailor_report=json.dumps(report))
     assert "fit 80 (tailored: about the same)" in client.get("/").get_data(as_text=True)
     assert "about the same (-3)" in client.get(f"/job/{job}").get_data(as_text=True)

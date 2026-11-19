@@ -1,5 +1,3 @@
-"""Tests for the daily schedule. These never install anything on your Mac."""
-
 import pytest
 
 from agent import schedule
@@ -23,9 +21,9 @@ def test_plist_runs_prepare_with_notify_using_project_python():
     assert args[0].endswith("venv/bin/python")
     assert args[1].endswith("main.py")
     days = [i["Weekday"] for i in plist["StartCalendarInterval"]]
-    assert days == [1, 2, 3, 4, 5]                       # Monday to Friday
-    assert plist["RunAtLoad"] is True                    # also checks at login
-    assert plist["StandardOutPath"].endswith("data/logs/daily-prepare.log")   # inside data/, never committed
+    assert days == [1, 2, 3, 4, 5]
+    assert plist["RunAtLoad"] is True
+    assert plist["StandardOutPath"].endswith("data/logs/daily-prepare.log")
 
 
 def test_format_time():
@@ -44,8 +42,8 @@ def test_should_run_once_per_weekday_after_the_time():
     from datetime import date, datetime
     monday_8am = datetime(2026, 11, 9, 8, 0)
     assert schedule.should_run(monday_8am, 7, 0, True, last_run_date=None)
-    assert not schedule.should_run(monday_8am, 7, 0, True, last_run_date=date(2026, 11, 9))  # already ran
-    assert not schedule.should_run(datetime(2026, 11, 9, 6, 30), 7, 0, True, None)            # too early
+    assert not schedule.should_run(monday_8am, 7, 0, True, last_run_date=date(2026, 11, 9))
+    assert not schedule.should_run(datetime(2026, 11, 9, 6, 30), 7, 0, True, None)
     saturday = datetime(2026, 11, 14, 9, 0)
-    assert not schedule.should_run(saturday, 7, 0, True, None)                                 # weekend
-    assert schedule.should_run(saturday, 7, 0, False, None)                                    # every-day mode
+    assert not schedule.should_run(saturday, 7, 0, True, None)
+    assert schedule.should_run(saturday, 7, 0, False, None)

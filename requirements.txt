@@ -1,12 +1,8 @@
-# Packages this project needs. Install them with:
-#   pip install -r requirements.txt
-#   python -m playwright install chromium     (one time: the browser it controls)
-
-python-dotenv>=1.0   # reads your API key from the .env file
-PyYAML>=6.0          # reads config.yaml and data/profile.yaml
-requests>=2.31       # downloads job listings
-anthropic>=2.7       # talks to Claude (scoring, tailoring, form answers)
-python-docx>=1.2     # makes Word versions of tailored resumes
-playwright>=1.65     # makes PDFs and fills in application forms
-flask>=3.1           # the review page
-pytest>=8.0          # runs the tests in tests/
+python-dotenv>=1.0
+PyYAML>=6.0
+requests>=2.31
+anthropic>=2.7
+python-docx>=1.2
+playwright>=1.65
+flask>=3.1
+pytest>=8.0

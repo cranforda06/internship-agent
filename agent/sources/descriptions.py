@@ -1,14 +1,3 @@
-"""Get a job's full description from the site that hosts it.
-
-The SimplifyJobs list only gives us a link. Most companies post their jobs
-through a hiring system (Workday, Oracle, Greenhouse...), and each of those
-systems has a public, read-only data feed behind its job pages. That's the
-same data your browser loads when you open the page, just without the page
-around it. We read that feed instead of scraping the page.
-
-Use: fetch_description(url) -> description text, or None if we can't get it.
-"""
-
 import re
 from urllib.parse import quote, urlsplit
 
@@ -17,13 +6,11 @@ from agent.sources.web import get_json, html_to_text
 
 
 def _workday(url):
-    # https://boeing.wd1.myworkdayjobs.com/[en-US/]INTERN/job/<location>/<title_id>
-    #   -> https://boeing.wd1.myworkdayjobs.com/wday/cxs/boeing/INTERN/job/<location>/<title_id>
     parts = urlsplit(url)
     if "myworkdayjobs.com" not in parts.netloc:
         return None
     path = [p for p in parts.path.split("/") if p]
-    if path and re.fullmatch(r"[a-z]{2}-[A-Z]{2}", path[0]):  # drop "en-US"
+    if path and re.fullmatch(r"[a-z]{2}-[A-Z]{2}", path[0]):
         path = path[1:]
     if len(path) < 3 or "job" not in path:
         return None
@@ -34,7 +21,6 @@ def _workday(url):
 
 
 def _oracle(url):
-    # https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210773869
     match = re.search(r"https://([^/]*oraclecloud\.com)/.*/sites/([^/]+)/job/(\d+)", url)
     if not match:
         return None
@@ -51,7 +37,6 @@ def _oracle(url):
 
 
 def _ashby(url):
-    # https://jobs.ashbyhq.com/<company>/<job id>[/application]
     match = re.search(r"jobs\.ashbyhq\.com/([^/?]+)/([0-9a-f-]{36})", url)
     if not match:
         return None
@@ -63,7 +48,6 @@ def _ashby(url):
 
 
 def _smartrecruiters(url):
-    # https://jobs.smartrecruiters.com/<Company>/<posting id>[-title]
     match = re.search(r"smartrecruiters\.com/([^/?]+)/(\d+)", url)
     if not match:
         return None
@@ -78,7 +62,6 @@ def _smartrecruiters(url):
     return "\n\n".join(parts) or None
 
 
-# Each fetcher returns None right away if the link isn't from its site.
 FETCHERS = [
     greenhouse.fetch_description,
     lever.fetch_description,
@@ -90,25 +73,19 @@ FETCHERS = [
 
 
 def fetch_description(url):
-    """Return the job description text, or None if we can't get it.
-
-    Errors (posting taken down, site changed) also return None, so one bad
-    link never stops the agent.
-    """
     if not url:
         return None
     for fetcher in FETCHERS:
         try:
             text = fetcher(url)
         except Exception:
-            return None  # right site, but the request failed
+            return None
         if text:
             return text.strip()
     return None
 
 
 def site_name(url):
-    """Short name of the hiring system behind a link, for summaries."""
     host = urlsplit(url or "").netloc
     for key, name in [("myworkdayjobs", "Workday"), ("oraclecloud", "Oracle"),
                       ("greenhouse", "Greenhouse"), ("lever.co", "Lever"),

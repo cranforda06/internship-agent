@@ -1,14 +1,3 @@
-"""The home page's website: a small website that runs only on your computer.
-
-Open it with:  python main.py home
-It lists the jobs whose resumes were tailored ("queued"). For each one you
-see the posting, the fit score, and your tailored resume with every change
-marked, then choose Approve, Edit, or Skip. Approved jobs get an Apply
-button (see agent/home.py).
-
-It only listens on 127.0.0.1 (your own machine), so nobody else can open it.
-"""
-
 import difflib
 import html
 import json
@@ -23,11 +12,8 @@ from agent.filters import age_text
 from agent.sources.trust import classify
 from agent.tailor import code_checks
 
-# Fit scores can differ by about this much when the same resume is scored twice.
 NOISE = 4
 
-# A random password for this session's buttons, so other websites you have
-# open can't press them for you.
 TOKEN = secrets.token_hex(16)
 
 STYLE = """
@@ -88,7 +74,6 @@ def esc(text):
 
 
 def source_pill(row):
-    """A small label saying whether the job link is on a verified site."""
     level, where = classify(row["link"], row["company"])
     if level == "hiring_system":
         return f"<span class='pill ok' title='An official hiring system the company uses'>✓ {esc(where)}</span>"
@@ -99,14 +84,11 @@ def source_pill(row):
 
 
 def _short(location, limit=90):
-    """Long location lists (some jobs list every state) get cut short."""
     location = location or ""
     return location if len(location) <= limit else location[:limit].rsplit(";", 1)[0] + "; and more"
 
 
 def newest_first(rows):
-    """Most recently posted jobs first (best fit first among same-day posts).
-    Jobs with no posting date go last."""
     return sorted(rows, key=lambda r: (r["posted"] or "", r["fit_score"] or 0), reverse=True)
 
 
@@ -117,9 +99,6 @@ def form_button(action, label, cls, disabled=False):
 
 
 def _similarity(a, b):
-    """How alike two lines are, 0 to 1. Takes the better of two measures:
-    letters in order (catches rewording) and shared words in any order
-    (catches reordered lists like a skills line)."""
     in_order = difflib.SequenceMatcher(None, a, b).ratio()
     wa, wb = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
     any_order = len(wa & wb) / len(wa | wb) if wa | wb else 0
@@ -127,7 +106,6 @@ def _similarity(a, b):
 
 
 def marked_resume(original, tailored):
-    """Show the tailored resume, marking each line as same / reworded / new."""
     orig_lines = [l.strip() for l in original.splitlines() if l.strip()]
     used = set()
     out = []
@@ -147,8 +125,6 @@ def marked_resume(original, tailored):
 
 
 def create_app(config, tracker, session=None):
-    """The home page's website: reviewing jobs (this file) plus the Apply
-    buttons (agent/home.py)."""
     from agent.home import ApplySession, add_routes
 
     app = Flask(__name__)
@@ -167,7 +143,6 @@ def create_app(config, tracker, session=None):
         return row
 
     def fit_text(before, report):
-        """'fit 72', 'fit 72 → 80 tailored', or 'fit 72 (tailored ≈ same)'."""
         after = report.get("tailored_fit_score")
         if after is None:
             return f"fit {before}"
@@ -176,13 +151,10 @@ def create_app(config, tracker, session=None):
         return f"fit {before} → {after} tailored"
 
     def fit_compare(before, report):
-        """Before/after box on the job page."""
         after = report.get("tailored_fit_score")
         if after is None:
             return ""
         change = after - (before or 0)
-        # Scores vary by up to ~4 points even for the same resume, so small
-        # changes are shown as "about the same" rather than better or worse.
         if abs(change) <= NOISE:
             pill = f"<div class='pill ok'>about the same ({change:+d})</div>"
         else:

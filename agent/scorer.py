@@ -1,10 +1,3 @@
-"""Phase 2, step 2: score how well each found job fits your resume (uses Claude).
-
-For each job, Claude reads your resume and the job, and returns a fit score
-from 0 to 100 plus its reasons. We ask for the answer in a fixed format
-(a "JSON schema"), so the code never has to dig a number out of a paragraph.
-"""
-
 import json
 from datetime import date
 
@@ -12,7 +5,6 @@ from agent.filters import adjusted_score, is_preferred_location
 from agent.llm import ClaudeError
 from agent.sources.descriptions import fetch_description
 
-# The exact shape Claude's answer must have.
 SCORE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -67,12 +59,10 @@ than 75), and say in the summary that the description wasn't available."""
 
 
 class ScoreError(Exception):
-    """Raised when Claude can't produce a usable score for a job."""
+    pass
 
 
 def fetch_missing_description(row):
-    """Use the saved description. If we never tried to get one (NULL), try now.
-    An empty string means we already tried and it isn't available."""
     if row["description"] is not None:
         return row["description"]
     return fetch_description(row["link"]) or ""
@@ -93,13 +83,12 @@ def build_job_text(row, description):
 
 class Scorer:
     def __init__(self, claude, resume_text, model, effort="low"):
-        self.claude = claude  # an agent.llm.Claude, shared so costs add up in one place
+        self.claude = claude
         self.resume_text = resume_text
         self.model = model
         self.effort = effort
 
     def score(self, job_text):
-        """Return a dict with score, summary, matching_strengths, gaps."""
         prompt = (f"<resume>\n{self.resume_text}\n</resume>\n\n"
                   f"<job>\n{job_text}\n</job>\n\n"
                   "Score how well this internship fits this student.")
@@ -108,24 +97,17 @@ class Scorer:
                                      effort=self.effort, max_tokens=8000)
         except ClaudeError as e:
             raise ScoreError(str(e))
-        result["score"] = max(0, min(100, int(result["score"])))  # keep it 0-100
+        result["score"] = max(0, min(100, int(result["score"])))
         return result
 
 
 def score_found_jobs(config, tracker, scorer, limit, log=print, stop_after_good=None):
-    """Score up to `limit` unscored jobs and save the results in the tracker.
-
-    Jobs in your preferred locations are scored first, so your credits go
-    to them before anything else. If `stop_after_good` is set, stops as soon
-    as that many good matches are found (used by the daily "prepare" step).
-    """
     min_score = config["scoring"]["min_fit_score"]
     search = config.get("search", {})
     preferred = search.get("preferred_locations", [])
     counts = {"good": 0, "skipped": 0, "errors": 0}
 
     rows = tracker.unscored()
-    # sorted() keeps the existing order (newest first) within each group.
     rows = sorted(rows, key=lambda r: not is_preferred_location(r["location"], preferred))
 
     for row in rows[:limit]:
@@ -138,11 +120,7 @@ def score_found_jobs(config, tracker, scorer, limit, log=print, stop_after_good=
             log(f"  ! {row['company']} - {row['role']}: {e}")
             counts["errors"] += 1
             continue
-        # anthropic.APIError (bad key, no credits, network) is NOT caught
-        # here on purpose: it would fail the same way for every job, so we stop.
 
-        # The location bonus counts toward the minimum, so a Richmond or DC
-        # job just under the line still makes your list.
         good = adjusted_score(result["score"], row["location"], search) >= min_score
         result["had_description"] = bool(description)
         tracker.update_details(

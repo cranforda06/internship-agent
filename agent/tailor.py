@@ -1,19 +1,3 @@
-"""Phase 3: tailor your resume to one job, then check it for truthfulness.
-
-Three steps for each job:
-1. TAILOR: Claude rewrites your resume for the job. It may reorder sections
-   and bullets, reword bullets using the job's vocabulary, and cut the least
-   relevant lines. It may NOT add anything that isn't already in your resume.
-2. CHECK (AI): a second, separate Claude request compares the tailored
-   resume to the original line by line and lists any claim it can't trace
-   back to the original.
-3. CHECK (code): plain Python double-checks the facts that matter most:
-   your name/contact line, every job title/company/date line, and every
-   number (50+, 100%, 3.80...) must appear exactly as in the original.
-
-Anything flagged is shown to you in the review step. Nothing is hidden.
-"""
-
 import json
 import re
 from datetime import date
@@ -113,24 +97,19 @@ NUMBER = re.compile(r"\d[\d,.]*\+?%?")
 
 
 def code_checks(original, tailored):
-    """Fact checks that don't need AI. Returns a list of problems (strings)."""
     problems = []
     orig_lines = [l.strip() for l in original.splitlines() if l.strip()]
     new_lines = [l.strip() for l in tailored.splitlines() if l.strip()]
 
-    # 1. Name and contact line(s) must be identical.
     header_len = next((i for i, l in enumerate(orig_lines) if l.startswith("## ")), 2)
     if new_lines[:header_len] != orig_lines[:header_len]:
         problems.append("Name or contact line was changed.")
 
-    # 2. Every entry line (title / company / dates) must exist in the original.
     original_entries = {l for l in orig_lines if l.startswith("### ")}
     for line in new_lines:
         if line.startswith("### ") and line not in original_entries:
             problems.append(f"Entry line not in your original resume: {line[4:]}")
 
-    # 3. Every number must appear somewhere in the original. Compare just the
-    #    digits ("50+" vs "50", "2026," vs "2026") so punctuation isn't flagged.
     def core(n):
         return n.rstrip(".,").replace("+", "").replace("%", "")
     original_numbers = {core(n) for n in NUMBER.findall(original)}
@@ -144,17 +123,11 @@ def _slug(text):
 
 
 def _file_name(original):
-    """'# Alex Cranford' -> 'Alex_Cranford_Resume'"""
     first = next((l for l in original.splitlines() if l.startswith("# ")), "# Resume")
     return re.sub(r"\W+", "_", first[2:].strip()).strip("_") + "_Resume"
 
 
 def tailor_job(claude, settings, original, row, out_root):
-    """Tailor the resume for one tracker row. Returns the report dict.
-
-    Saves resume.md, a PDF, a Word file, and report.json into a folder
-    under out_root, named after the job.
-    """
     job_text = (f"Company: {row['company']}\nTitle: {row['role']}\n"
                 f"Location: {row['location'] or 'n/a'}\n\n"
                 f"Job description:\n{row['description'] or 'NOT AVAILABLE (tailor to the title).'}")
@@ -197,9 +170,6 @@ def tailor_job(claude, settings, original, row, out_root):
 
 
 def score_tailored(config, claude, row, resume_md):
-    """Score the TAILORED resume against the same job, the same way the
-    original was scored, so you can compare before and after. About 1 cent.
-    Returns the score (0-100), or None if it couldn't be scored."""
     from agent.scorer import ScoreError, Scorer, build_job_text
 
     settings = config["scoring"]
@@ -211,10 +181,6 @@ def score_tailored(config, claude, row, resume_md):
 
 
 def tailor_queue(config, tracker, claude, original, count, log=print):
-    """Tailor the `count` best matches that aren't queued yet.
-
-    Each one moves from status "found" to "queued" (ready for your review).
-    """
     from agent.filters import adjusted_score
 
     search, settings = config["search"], config["tailoring"]

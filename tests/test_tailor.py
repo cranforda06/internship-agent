@@ -1,6 +1,3 @@
-"""Tests for Phase 3: the truthfulness checks, the resume parser, and the
-tailoring flow (with a fake Claude, so these are free and offline)."""
-
 import json
 
 from agent import render, tailor
@@ -80,7 +77,7 @@ def test_tailor_queue_saves_files_and_queues_job(tmp_path, monkeypatch):
     report = json.loads(row["tailor_report"])
     assert report["changes"] == ["Moved Skills up"]
     assert report["needs_attention"] is False
-    assert report["tailored_fit_score"] == 88     # the tailored resume is scored too
+    assert report["tailored_fit_score"] == 88
     assert (tmp_path / "out").exists() and list((tmp_path / "out").glob("*/Pat_Doe_Resume.docx"))
     t.close()
 

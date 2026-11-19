@@ -1,26 +1,15 @@
-"""Internships from companies' Workday career sites.
-
-Most big employers (Capital One, Booz Allen, CACI...) post on Workday.
-Every Workday career site has a public, read-only search feed behind it,
-the same data your browser loads when you open the site:
-    POST https://<host>/wday/cxs/<tenant>/<site>/jobs
-A site is written in config.yaml as "<host>/<site>", the start of its job
-links, e.g. capitalone.wd12.myworkdayjobs.com/Capital_One.
-"""
-
 import re
 from datetime import date, timedelta
 
 from agent.jobs import Job
 from agent.sources import web
 
-PAGE_SIZE = 20   # the most Workday returns at once
-MAX_PAGES = 2    # at most 40 postings per search
+PAGE_SIZE = 20
+MAX_PAGES = 2
 SEARCHES = ["intern 2027", "summer 2027"]
 
 
 def posted_date(text, today=None):
-    """Turn Workday's "Posted 3 Days Ago" into a date like "2026-11-13"."""
     today = today or date.today()
     text = (text or "").lower()
     if "today" in text:
@@ -36,8 +25,6 @@ def posted_date(text, today=None):
 
 
 def _location(posting):
-    """Workday says "3 Locations" when there are several, so then we use the
-    main location from the job link instead ("/job/Richmond-VA/..." -> "Richmond, VA")."""
     text = posting.get("locationsText") or ""
     match = re.fullmatch(r"(\d+) Locations", text.strip())
     if not match:
@@ -50,7 +37,6 @@ def _location(posting):
 
 
 def _search(api, text):
-    """Every posting the site returns for one search, a page at a time."""
     postings = []
     for page in range(MAX_PAGES):
         response = web.request(
@@ -66,12 +52,6 @@ def _search(api, text):
 
 
 def fetch_site(site, company, max_age_days=30, today=None):
-    """Return recent postings from one Workday career site.
-
-    Workday's search works a little differently on every site, so we run a
-    few searches and combine them. The finder's filters then drop anything
-    that isn't an internship.
-    """
     today = today or date.today()
     host, site_name = site.strip("/").split("/")[:2]
     tenant = host.split(".")[0]

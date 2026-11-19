@@ -1,16 +1,3 @@
-"""Turn a Markdown resume (the format of data/resume.md) into Word and PDF files.
-
-The Markdown layout this understands:
-    # Your Name                        -> name at the top
-    contact line(s)                    -> centered under the name
-    ## Section                         -> section heading (EDUCATION, ...)
-    ### Title — Org (City) | Dates     -> entry line; text after the last " | "
-                                          is shown on the right (the dates)
-    - bullet                           -> bullet point
-    any other line                     -> plain line (e.g. degree, GPA)
-**bold** inside a line is supported.
-"""
-
 import html
 import re
 from pathlib import Path
@@ -23,7 +10,6 @@ from docx.shared import Inches, Pt
 
 
 def parse(markdown):
-    """Split the resume into a simple list of (kind, text) pieces."""
     blocks = []
     for raw in markdown.splitlines():
         line = raw.rstrip()
@@ -45,10 +31,6 @@ def parse(markdown):
             blocks.append(("line", line.strip()))
     return blocks
 
-
-# --------------------------------------------------------------------------
-# PDF: build an HTML page, then have a headless browser "print" it to PDF.
-# --------------------------------------------------------------------------
 
 CSS = """
 @page { size: Letter; margin: 0.5in 0.6in; }
@@ -100,7 +82,6 @@ def to_html(markdown):
 
 
 def to_pdf(markdown, out_path):
-    """Save the resume as a PDF. Returns the number of pages."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
@@ -110,16 +91,10 @@ def to_pdf(markdown, out_path):
         page.pdf(path=str(out_path), format="Letter", print_background=True,
                  prefer_css_page_size=True)
         browser.close()
-    # Count pages by looking for page objects in the PDF file.
     return len(re.findall(rb"/Type\s*/Page[^s]", Path(out_path).read_bytes()))
 
 
-# --------------------------------------------------------------------------
-# Word (.docx)
-# --------------------------------------------------------------------------
-
 def _add_runs(paragraph, text):
-    """Add text to a Word paragraph, making **bold** parts bold."""
     for i, chunk in enumerate(re.split(r"\*\*(.+?)\*\*", text)):
         if chunk:
             paragraph.add_run(chunk).bold = (i % 2 == 1)

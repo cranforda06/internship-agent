@@ -1,5 +1,3 @@
-"""Tests for the free keyword filters and the job-board parsers."""
-
 from agent.config import load_config
 from agent.filters import JobFilter, is_internship, is_right_term, is_us_location
 from agent.jobs import Job
@@ -27,8 +25,8 @@ def test_us_locations():
     assert is_us_location("Richmond, VA")
     assert is_us_location("Remote in USA")
     assert is_us_location("NYC")
-    assert is_us_location("London, UK; New York, NY")   # one US location is enough
-    assert is_us_location("")                            # unknown: keep it
+    assert is_us_location("London, UK; New York, NY")
+    assert is_us_location("")
     assert not is_us_location("London, UK")
     assert not is_us_location("Toronto, ON, Canada")
 
@@ -98,10 +96,10 @@ def test_preferred_locations_and_bonus():
     assert is_preferred_location("Richmond, VA", prefs)
     assert is_preferred_location("Arlington County, Arlington, VA", prefs)
     assert is_preferred_location("New York, NY; Washington, DC", prefs)
-    assert not is_preferred_location("Seattle, WA", prefs)   # Washington state isn't DC
+    assert not is_preferred_location("Seattle, WA", prefs)
     assert adjusted_score(70, "McLean, VA", search) == 80
     assert adjusted_score(70, "Austin, TX", search) == 70
-    assert adjusted_score(95, "Richmond, VA", search) == 100  # capped
+    assert adjusted_score(95, "Richmond, VA", search) == 100
 
 
 def test_data_science_now_excluded_but_business_systems_kept():

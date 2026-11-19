@@ -1,5 +1,3 @@
-"""Tests for the Workday source. Workday's site is swapped for a fake."""
-
 from datetime import date
 
 from agent.sources import workday
@@ -12,7 +10,7 @@ def test_posted_date():
     assert workday.posted_date("Posted Today", TODAY) == "2026-11-16"
     assert workday.posted_date("Posted Yesterday", TODAY) == "2026-11-15"
     assert workday.posted_date("Posted 3 Days Ago", TODAY) == "2026-11-13"
-    assert workday.posted_date("Posted 30+ Days Ago", TODAY) == "2026-10-16"   # 31 days
+    assert workday.posted_date("Posted 30+ Days Ago", TODAY) == "2026-10-16"
     assert workday.posted_date("", TODAY) == ""
 
 
@@ -42,14 +40,14 @@ def test_fetch_site_combines_searches_and_drops_old_postings(monkeypatch):
 
     def fake_request(method, url, json, **kwargs):
         calls.append((url, json["searchText"]))
-        return FakeResponse({"jobPostings": postings})   # every search finds the same two
+        return FakeResponse({"jobPostings": postings})
 
     monkeypatch.setattr(workday.web, "request", fake_request)
     jobs = workday.fetch_site("capitalone.wd12.myworkdayjobs.com/Capital_One", "Capital One",
                               max_age_days=14, today=TODAY)
     assert calls[0][0] == "https://capitalone.wd12.myworkdayjobs.com/wday/cxs/capitalone/Capital_One/jobs"
     assert len(calls) == len(workday.SEARCHES)
-    assert [j.title for j in jobs] == ["Business Analyst Intern"]   # no duplicates, no old ones
+    assert [j.title for j in jobs] == ["Business Analyst Intern"]
     job = jobs[0]
     assert job.url == "https://capitalone.wd12.myworkdayjobs.com/Capital_One/job/Richmond-VA/BA-Intern_R1"
     assert (job.company, job.location, job.posted, job.source) == (

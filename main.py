@@ -1,27 +1,3 @@
-"""The commands you run in the terminal.
-
-Examples:
-    python main.py add                  # add an application (it asks you questions)
-    python main.py import data/past_applications.csv
-    python main.py list                 # show your applications
-    python main.py list --all           # also show jobs the agent found/skipped
-    python main.py status 3 interview   # change job #3's status
-    python main.py resume               # check that your resume loads
-
-    python main.py find                 # look for new internships (free)
-    python main.py score                # score found jobs with Claude (costs credits)
-    python main.py score --limit 25
-    python main.py jobs                 # show the best matches
-    python main.py show 42              # full details for job #42
-
-    python main.py prepare              # daily: find, score, tailor your top 5
-    python main.py queue                # tailored jobs waiting for your review
-    python main.py tailor 42            # tailor your resume for one job
-    python main.py home                 # review AND apply with buttons in your browser
-    python main.py apply                # apply to approved jobs, answering in the terminal
-    python main.py schedule --time 7:00 # run 'prepare' automatically every day
-"""
-
 import argparse
 import json
 import sys
@@ -33,7 +9,6 @@ from agent.tracker import STATUSES, DuplicateError, Tracker, parse_date
 
 
 def ask(prompt, default=None):
-    """Ask a question in the terminal. Press Enter to accept the default."""
     suffix = f" [{default}]" if default else ""
     answer = input(f"{prompt}{suffix}: ").strip()
     return answer or default
@@ -44,11 +19,10 @@ def cmd_add(tracker, args):
     role = args.role or ask("Role")
     link = args.link if args.link is not None else ask("Link (optional)")
     status = args.status or ask("Status", default="applied")
-    # "is not None" so that --date "" means "no date" instead of asking.
     if args.date is not None:
         raw_date = args.date
     elif status == "found":
-        raw_date = None  # not applied yet, so no date
+        raw_date = None
     else:
         raw_date = ask("Date applied", default=date.today().isoformat())
 
@@ -82,12 +56,10 @@ def cmd_import(tracker, args):
 def cmd_list(tracker, args):
     rows = tracker.list_all(status=args.status)
     if not args.status and not args.all:
-        # Hide what the agent found/skipped; those are shown by "jobs".
         rows = [r for r in rows if r["status"] not in ("found", "skipped")]
     if not rows:
         print("No applications yet.")
         return 0
-    # Print a simple table. The :<N format pads each column to N characters.
     print(f"{'#':<4} {'Company':<22} {'Role':<36} {'Status':<10} {'Applied':<11}")
     print("-" * 86)
     from pathlib import Path
@@ -98,7 +70,6 @@ def cmd_list(tracker, args):
         print(f"{r['id']:<4} {r['company'][:22]:<22} {r['role'][:36]:<36} "
               f"{r['status']:<10} {r['date_applied'] or '':<11}")
         if r["tailored_dir"]:
-            # The tailored resume used for this job (the PDF is what was uploaded).
             folder = Path(r["tailored_dir"])
             if folder.is_relative_to(PROJECT_ROOT):
                 folder = folder.relative_to(PROJECT_ROOT)
@@ -118,7 +89,7 @@ def cmd_status(tracker, args):
 
 
 def cmd_find(config, tracker, args):
-    from agent.finder import fill_descriptions, find_new_jobs  # imported here so other commands start fast
+    from agent.finder import fill_descriptions, find_new_jobs
 
     results = find_new_jobs(config, tracker)
     print("\nResults:")
@@ -136,7 +107,6 @@ def cmd_find(config, tracker, args):
 
 
 def _setup_claude(config):
-    """Load the API key and resume. Returns (claude, resume_text), or None on error."""
     from agent.llm import Claude
 
     try:
@@ -147,8 +117,6 @@ def _setup_claude(config):
 
 
 def _run_with_api(claude, work):
-    """Run `work()`, turning API problems into plain messages, and always
-    print what the run cost. Returns work()'s result, or None on an API error."""
     import anthropic
 
     try:
@@ -193,7 +161,6 @@ def cmd_score(config, tracker, args):
 
 
 def cmd_tailor(config, tracker, args):
-    """Tailor your resume for one specific job (by its # from 'jobs')."""
     from agent.tailor import tailor_job
 
     row = tracker.get(args.id)
@@ -237,16 +204,12 @@ def _print_report(report, folder):
 
 
 def cmd_prepare(config, tracker, args):
-    """Runs the daily routine. With --notify (used by the daily schedule) it
-    also shows a macOS notification saying how it went."""
     from datetime import datetime
 
     from agent import schedule
 
     now = datetime.now()
     if args.scheduled_at:
-        # Started by the daily schedule (at the set time, on wake, or at login).
-        # Only do the work once per day, on the right days, after the set time.
         hour, minute = schedule.parse_time(args.scheduled_at)
         if not schedule.should_run(now, hour, minute, args.weekdays_only, schedule.last_run_date()):
             return 0
@@ -257,28 +220,22 @@ def cmd_prepare(config, tracker, args):
     print(f"\n===== Scheduled run: {now:%Y-%m-%d %H:%M} =====")
     try:
         code, message = _prepare(config, tracker, args)
-    except Exception as e:  # anything unexpected: tell the user instead of failing silently
+    except Exception as e:
         code, message = 1, f"Something went wrong ({e.__class__.__name__}). See data/logs/daily-prepare.log"
         print(f"ERROR: {e!r}")
     if code == 0 and args.scheduled_at:
-        schedule.record_run(now.date())   # a failed run gets retried at your next login/wake
+        schedule.record_run(now.date())
     schedule.notify("Internship agent" if code == 0 else "Internship agent: problem", message)
     return code
 
 
 def _prepare(config, tracker, args):
-    """The daily routine: find new jobs, score until there are enough good
-    matches, then tailor resumes for the best ones.
-
-    Returns (exit code, one-line summary for a notification)."""
     from agent.scorer import Scorer, score_found_jobs
     from agent.tailor import tailor_queue
 
     from agent.approval import auto_approve
 
     size = args.count or config["daily"]["queue_size"]
-    # Jobs tailored but not applied to yet (waiting for review, or approved)
-    # count toward the daily number, so the pipeline never grows past it.
     queued = len(tracker.list_all(status="queued")) + len(tracker.list_all(status="approved"))
     need = size - queued
     if need <= 0:
@@ -365,8 +322,6 @@ def cmd_schedule(config, tracker, args):
 
 
 def cmd_go(config, tracker, args):
-    """Everything in one command: prepare (if today's hasn't run), auto-approve,
-    then open the home page to review and apply."""
     from datetime import date
 
     from agent import schedule
@@ -382,7 +337,7 @@ def cmd_go(config, tracker, args):
             print(f"Couldn't prepare new jobs: {message}")
             print("Continuing with the jobs you already have.")
         else:
-            schedule.record_run(today)   # so the scheduled run doesn't do it again today
+            schedule.record_run(today)
 
     auto_approve(config, tracker)
     print("\n=== Step 2/2: Review and apply on the home page ===")
@@ -408,7 +363,6 @@ def _print_counts(counts):
 
 
 def cmd_home(config, tracker, args, auto_approved=False):
-    """The home page: review jobs and apply with buttons. Free (no AI)."""
     from agent.home import run_home
 
     if not auto_approved:
@@ -418,7 +372,6 @@ def cmd_home(config, tracker, args, auto_approved=False):
 
 
 def cmd_apply(config, tracker, args):
-    """Apply in the terminal (the home page does the same with buttons)."""
     from agent.apply import apply_in_terminal
 
     _auto_approve_quietly(config, tracker)
@@ -443,7 +396,6 @@ def cmd_queue(config, tracker, args):
 
 
 def _warning_for(tracker, row):
-    """Warn if you've already applied somewhere at this company."""
     past = tracker.applied_at_company(row["company"], exclude_id=row["id"])
     if not past:
         return ""
@@ -460,7 +412,6 @@ def cmd_jobs(config, tracker, args):
     if not rows:
         print("No scored matches yet. Run 'python main.py find' then 'python main.py score'.")
         return 0
-    # Best first, counting the bonus for Richmond/DC.
     rows = sorted(rows, key=lambda r: -adjusted_score(r["fit_score"], r["location"], search))
 
     from agent.filters import posting_age_days
@@ -489,7 +440,6 @@ def cmd_jobs(config, tracker, args):
 
 
 def cmd_today(config, tracker, args):
-    """What the agent did on one day: new listings found, jobs scored, resumes tailored."""
     from datetime import date
 
     from agent.filters import adjusted_score, is_preferred_location
@@ -625,7 +575,6 @@ def build_parser():
     p.add_argument("--count", type=int, help="How many to prepare (default from config.yaml)")
     p.add_argument("--no-find", action="store_true", help="Skip downloading new listings")
     p.add_argument("--notify", action="store_true", help="Show a notification when done (used by the schedule)")
-    # Used by the schedule only: run once per day, after this time.
     p.add_argument("--scheduled-at", help=argparse.SUPPRESS)
     p.add_argument("--weekdays-only", action="store_true", help=argparse.SUPPRESS)
 
@@ -691,6 +640,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (KeyboardInterrupt, EOFError):
-        # You pressed Ctrl+C (or Ctrl+D) at a question. Exit quietly.
         print("\nCancelled.")
         sys.exit(1)

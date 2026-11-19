@@ -1,14 +1,3 @@
-"""The home page: review jobs and keep track of applying, all with buttons.
-
-Open it with:  python main.py home   (python main.py go opens it too)
-
-Clicking Apply opens the application in your normal browser and shows your
-tailored resume in Finder. You do the application yourself, then click
-"I submitted it", "Not yet", or "Skip" here so the tracker stays right.
-
-The agent never types into, clicks on, or submits an application.
-"""
-
 import threading
 
 from agent.review import TOKEN, esc, form_button
@@ -17,12 +6,9 @@ OUTCOME_TEXT = {"y": "Marked as applied ✓", "n": "Kept for later", "s": "Skipp
 
 
 class ApplySession:
-    """Which job you're applying to right now (one at a time, so each
-    "I submitted it" goes to the right job)."""
-
     def __init__(self, open_job=None):
         from agent import apply
-        self.open_job = open_job or apply.open_job   # tests swap this for a fake
+        self.open_job = open_job or apply.open_job
         self.lock = threading.Lock()
         self.job = None
         self.warning = ""
@@ -122,7 +108,7 @@ def add_routes(app, session, tracker):
         check_token()
         if session.busy:
             return redirect("/", code=303)
-        session.finished = True   # run_home() sees this and stops the page
+        session.finished = True
         c = session.counts
         return page("Internship agent", f"<div class='card'><h2>All done for today ✓</h2>"
                     f"<p>Submitted: {c['submitted']} · Saved for later: {c['later']} · Skipped: {c['skipped']}</p>"
@@ -130,7 +116,6 @@ def add_routes(app, session, tracker):
 
 
 def run_home(config, tracker, port=5050, open_browser=True, open_job=None):
-    """Show the home page until you click "Finish for today" (or press Ctrl+C)."""
     import logging
     import webbrowser
 
@@ -138,10 +123,10 @@ def run_home(config, tracker, port=5050, open_browser=True, open_job=None):
 
     from agent.review import create_app
 
-    logging.getLogger("werkzeug").setLevel(logging.WARNING)   # hide each page request
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
     session = ApplySession(open_job)
     app = create_app(config, tracker, session=session)
-    server = make_server("127.0.0.1", port, app)   # one request at a time (see tracker note)
+    server = make_server("127.0.0.1", port, app)
     server.timeout = 0.5
     url = f"http://127.0.0.1:{port}/"
     print(f"Home page: {url}")

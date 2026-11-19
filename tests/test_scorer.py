@@ -1,5 +1,3 @@
-"""Tests for scoring, using a FAKE Claude so they're free and work offline."""
-
 import json
 from types import SimpleNamespace
 
@@ -11,11 +9,8 @@ from agent.tracker import Tracker
 
 
 class FakeClient:
-    """Pretends to be the Anthropic client and returns canned answers."""
-    # Used by both the scorer and the tailor tests.
-
     def __init__(self, answers):
-        self.answers = list(answers)  # each one: (stop_reason, score dict)
+        self.answers = list(answers)
         self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
@@ -61,7 +56,6 @@ def test_score_found_jobs_marks_weak_matches_skipped(tmp_path):
     good = t.add("Acme", "Data Analyst Intern", status="found", description="SQL work", posted="2026-11-02")
     weak = t.add("Globex", "IT Intern", status="found", description="Help desk", posted="2026-11-01")
     config = {"scoring": {"min_fit_score": 65}}
-    # Newest posting is scored first, so Acme gets 80 and Globex gets 40.
     counts = score_found_jobs(config, t, make_scorer([answer(80), answer(40)]), limit=10, log=lambda m: None)
 
     assert counts == {"good": 1, "skipped": 1, "errors": 0}
@@ -85,8 +79,6 @@ def test_preferred_locations_scored_first_and_bonus_counts(tmp_path):
     near = t.add("Globex", "IT Intern", status="found", description="x", location="Richmond, VA", posted="2026-11-01")
     config = {"scoring": {"min_fit_score": 65},
               "search": {"preferred_locations": ["Richmond"], "preferred_location_bonus": 10}}
-    # Only 1 job allowed: the Richmond one goes first even though it's older.
-    # It scores 60, but 60 + 10 bonus = 70 passes the minimum of 65.
     score_found_jobs(config, t, make_scorer([answer(60)]), limit=1, log=lambda m: None)
     assert t.get(near)["fit_score"] == 60 and t.get(near)["status"] == "found"
     assert t.get(far)["fit_score"] is None
@@ -100,6 +92,6 @@ def test_stop_after_good(tmp_path):
     config = {"scoring": {"min_fit_score": 65}}
     counts = score_found_jobs(config, t, make_scorer([answer(80)] * 5), limit=10,
                               log=lambda m: None, stop_after_good=2)
-    assert counts["good"] == 2          # stopped early, saving credits
+    assert counts["good"] == 2
     assert t.count_unscored() == 3
     t.close()

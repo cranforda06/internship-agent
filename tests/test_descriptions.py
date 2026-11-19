@@ -1,8 +1,3 @@
-"""Tests that each job site's link turns into the right data-feed address.
-
-`fake_get_json` stands in for the real download, so these run offline.
-"""
-
 import pytest
 
 from agent.sources import descriptions
@@ -10,7 +5,6 @@ from agent.sources import descriptions
 
 @pytest.fixture
 def requested(monkeypatch):
-    """Record which URL the code tried to download, and return canned data."""
     calls = []
 
     def fake_get_json(url, timeout=20):
@@ -53,7 +47,7 @@ def test_smartrecruiters(requested):
 
 def test_unknown_site_returns_none(requested):
     assert descriptions.fetch_description("https://careers.example.com/job/1") is None
-    assert requested == []  # didn't try to download anything
+    assert requested == []
 
 
 def test_failed_download_returns_none(monkeypatch):

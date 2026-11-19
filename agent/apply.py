@@ -1,16 +1,3 @@
-"""Applying: the agent opens the job and hands you the tailored resume.
-You do everything inside the application yourself.
-
-For each job:
-1. The application opens in your normal browser.
-2. Your tailored resume PDF is shown in Finder, already selected, so you can
-   drag it straight into the application's upload box.
-3. You fill in the application and click Submit.
-4. You tell the agent what happened, so the tracker stays right.
-
-The agent never types into, clicks on, or submits an application.
-"""
-
 import json
 import subprocess
 import sys
@@ -19,12 +6,10 @@ from pathlib import Path
 
 
 def resume_pdf(row):
-    """The tailored resume PDF for this job (None if it wasn't tailored)."""
     return json.loads(row["tailor_report"] or "{}").get("pdf")
 
 
 def show_in_finder(pdf):
-    """Open Finder with the PDF selected, ready to drag into an upload box."""
     if not pdf or not Path(pdf).exists():
         return False
     if sys.platform == "darwin":
@@ -35,7 +20,6 @@ def show_in_finder(pdf):
 
 
 def open_job(row):
-    """Open the job's application in your browser and show its resume."""
     webbrowser.open(row["link"])
     return show_in_finder(resume_pdf(row))
 
@@ -51,8 +35,6 @@ def _ask_outcome(pdf):
 
 
 def apply_in_terminal(tracker, only_ids=None):
-    """Go through approved jobs one at a time, asking in the terminal what
-    happened after each. (The home page does the same with buttons.)"""
     rows = tracker.list_all(status="approved")
     if only_ids:
         rows = [r for r in rows if r["id"] in only_ids]
@@ -61,7 +43,7 @@ def apply_in_terminal(tracker, only_ids=None):
         return {}
     counts = {"submitted": 0, "later": 0, "skipped": 0}
     from agent.review import newest_first
-    for n, row in enumerate(newest_first(rows), start=1):  # most recently posted first
+    for n, row in enumerate(newest_first(rows), start=1):
         pdf = resume_pdf(row)
         print(f"\n[{n}/{len(rows)}] {row['company']} - {row['role']}")
         past = tracker.similar_application(row["company"], row["role"])
