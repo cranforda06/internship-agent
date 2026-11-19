@@ -36,8 +36,18 @@ TAILOR_SCHEMA = {
 TAILOR_PROMPT = """You tailor a student's resume to one specific internship. \
 The student will send it to a real employer, so it must stay 100% truthful.
 
+BE AGGRESSIVE about fit, inside the rules below. Before writing, pick out the \
+posting's 6-10 most important keywords (tools, skills, duties, phrases they \
+repeat). Then work every keyword the original resume truthfully supports into \
+the resume, using the posting's exact wording. Rework EVERY bullet you keep, \
+not just a few: start with a strong action verb, lead with what this employer \
+cares about most, and end with the real result or number when the original \
+has one. A hiring manager for this exact role should feel it was written for them.
+
 ALLOWED:
 - Reorder sections and bullets so the most relevant experience comes first.
+- Split one bullet into two, or merge two, when it puts the most relevant \
+facts up front (no new facts).
 - Reword a bullet to use the job posting's vocabulary, ONLY when the \
 underlying fact stays the same (e.g. "gather requirements" -> "elicit \
 business requirements" is fine if they gathered requirements).
@@ -186,6 +196,20 @@ def tailor_job(claude, settings, original, row, out_root):
     return report, str(folder)
 
 
+def score_tailored(config, claude, row, resume_md):
+    """Score the TAILORED resume against the same job, the same way the
+    original was scored, so you can compare before and after. About 1 cent.
+    Returns the score (0-100), or None if it couldn't be scored."""
+    from agent.scorer import ScoreError, Scorer, build_job_text
+
+    settings = config["scoring"]
+    scorer = Scorer(claude, resume_md, settings["model"], settings.get("effort", "low"))
+    try:
+        return scorer.score(build_job_text(row, row["description"]))["score"]
+    except (ScoreError, KeyError, ValueError):
+        return None
+
+
 def tailor_queue(config, tracker, claude, original, count, log=print):
     """Tailor the `count` best matches that aren't queued yet.
 
@@ -203,6 +227,8 @@ def tailor_queue(config, tracker, claude, original, count, log=print):
         except (ClaudeError, KeyError) as e:
             log(f"  ! {row['company']} - {row['role']}: {e}")
             continue
+        resume_md = (Path(folder) / "resume.md").read_text(encoding="utf-8")
+        report["tailored_fit_score"] = score_tailored(config, claude, row, resume_md)
         tracker.update_details(row["id"], tailored_dir=folder, tailor_report=json.dumps(report))
         tracker.update_status(row["id"], "queued")
         done += 1

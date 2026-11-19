@@ -103,3 +103,19 @@ def test_lists_show_most_recently_posted_first(tmp_path):
     home = client.get("/").get_data(as_text=True)
     assert home.index("Company1") < home.index("Company2") < home.index("Company0")
     t.close()
+
+
+def test_shows_fit_before_and_after_tailoring(tmp_path):
+    t, (job,), client, _, _ = setup(tmp_path, statuses=("queued",))
+    report = json.loads(t.get(job)["tailor_report"])
+    assert "→" not in client.get("/").get_data(as_text=True)      # not scored after tailoring yet
+    report["tailored_fit_score"] = 87
+    t.update_details(job, tailor_report=json.dumps(report))
+    assert "fit 80 → 87 tailored" in client.get("/").get_data(as_text=True)
+    page = client.get(f"/job/{job}").get_data(as_text=True)
+    assert "Tailored resume</span><b>87</b>" in page and "+7" in page
+    report["tailored_fit_score"] = 77                              # within normal variation
+    t.update_details(job, tailor_report=json.dumps(report))
+    assert "fit 80 (tailored: about the same)" in client.get("/").get_data(as_text=True)
+    assert "about the same (-3)" in client.get(f"/job/{job}").get_data(as_text=True)
+    t.close()

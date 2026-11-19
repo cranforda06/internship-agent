@@ -69,8 +69,10 @@ def test_tailor_queue_saves_files_and_queues_job(tmp_path, monkeypatch):
     claude = make_claude([
         ("end_turn", {"resume_markdown": ORIGINAL, "changes": ["Moved Skills up"]}),
         ("end_turn", {"issues": []}),
+        ("end_turn", {"score": 88, "summary": "s", "matching_strengths": [], "gaps": []}),
     ])
-    config = {"search": {}, "tailoring": {"model": "claude-opus-5-5"}, "output_dir": tmp_path / "out"}
+    config = {"search": {}, "tailoring": {"model": "claude-opus-5-5"},
+              "scoring": {"model": "claude-opus-5-5"}, "output_dir": tmp_path / "out"}
     assert tailor.tailor_queue(config, t, claude, ORIGINAL, count=5, log=lambda m: None) == 1
 
     row = t.get(job)
@@ -78,6 +80,7 @@ def test_tailor_queue_saves_files_and_queues_job(tmp_path, monkeypatch):
     report = json.loads(row["tailor_report"])
     assert report["changes"] == ["Moved Skills up"]
     assert report["needs_attention"] is False
+    assert report["tailored_fit_score"] == 88     # the tailored resume is scored too
     assert (tmp_path / "out").exists() and list((tmp_path / "out").glob("*/Pat_Doe_Resume.docx"))
     t.close()
 

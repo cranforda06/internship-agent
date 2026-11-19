@@ -212,7 +212,7 @@ scoring:
 # --- Phase 3: tailoring + daily queue ----------------------------------------
 tailoring:
   model: claude-opus-5-5
-  effort: medium         # how hard Claude works on the rewrite
+  effort: high           # how hard Claude works on the rewrite
   check_effort: medium   # how hard the truthfulness check works
 
 daily:

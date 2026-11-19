@@ -23,6 +23,9 @@ from agent.filters import age_text
 from agent.sources.trust import classify
 from agent.tailor import code_checks
 
+# Fit scores can differ by about this much when the same resume is scored twice.
+NOISE = 4
+
 # A random password for this session's buttons, so other websites you have
 # open can't press them for you.
 TOKEN = secrets.token_hex(16)
@@ -41,6 +44,10 @@ main { max-width:1300px; margin:0 auto; padding:20px; }
 .row { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
 .muted { color:var(--muted); font-size:13px; }
 .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; font-weight:600; }
+.fitcmp { display:flex; align-items:center; gap:14px; margin:10px 0 4px; }
+.fitcmp > div:not(.arrow):not(.pill) { display:flex; flex-direction:column; }
+.fitcmp b { font-size:22px; }
+.fitcmp .arrow { font-size:20px; color:var(--muted); }
 .ok { background:var(--green); color:var(--greenb); } .warn { background:var(--yellow); color:var(--yellowb); }
 .bad { background:var(--red); color:var(--redb); }
 .grid { display:grid; grid-template-columns: 1fr 1.25fr; gap:16px; }
@@ -159,6 +166,34 @@ def create_app(config, tracker, session=None):
             abort(404)
         return row
 
+    def fit_text(before, report):
+        """'fit 72', 'fit 72 → 80 tailored', or 'fit 72 (tailored ≈ same)'."""
+        after = report.get("tailored_fit_score")
+        if after is None:
+            return f"fit {before}"
+        if abs(after - (before or 0)) <= NOISE:
+            return f"fit {before} (tailored: about the same)"
+        return f"fit {before} → {after} tailored"
+
+    def fit_compare(before, report):
+        """Before/after box on the job page."""
+        after = report.get("tailored_fit_score")
+        if after is None:
+            return ""
+        change = after - (before or 0)
+        # Scores vary by up to ~4 points even for the same resume, so small
+        # changes are shown as "about the same" rather than better or worse.
+        if abs(change) <= NOISE:
+            pill = f"<div class='pill ok'>about the same ({change:+d})</div>"
+        else:
+            pill = f"<div class='pill {'ok' if change > 0 else 'warn'}'>{change:+d}</div>"
+        return (f"<div class='fitcmp'><div><span class='muted'>Your resume</span><b>{esc(before)}</b></div>"
+                f"<div class='arrow'>→</div>"
+                f"<div><span class='muted'>Tailored resume</span><b>{esc(after)}</b></div>{pill}</div>"
+                "<p class='muted'>Before = how well you fit the job. After = how well the "
+                f"tailored resume shows it (same facts, better wording). Scores can vary by about "
+                f"{NOISE} points from run to run, so small changes don't mean much.</p>")
+
     def job_card(r, apply_button=""):
         report = json.loads(r["tailor_report"] or "{}")
         pill = ("<span class='pill warn'>check flagged items</span>" if report.get("needs_attention")
@@ -167,7 +202,7 @@ def create_app(config, tracker, session=None):
         if tracker.applied_at_company(r["company"], exclude_id=r["id"]):
             warn = " <span class='pill bad'>applied here before</span>"
         return (f"<div class='card row'><div><b>{esc(r['company'])}</b> - {esc(r['role'])}"
-                f"<div class='muted'>{esc(_short(r['location']))} · fit {r['fit_score']} · "
+                f"<div class='muted'>{esc(_short(r['location']))} · {fit_text(r['fit_score'], report)} · "
                 f"{esc(age_text(r['posted']))} · {source_pill(r)}</div></div>"
                 f"<div>{pill}{warn} <a class='btn skip' href='/job/{r['id']}'>Open</a> {apply_button}</div></div>")
 
@@ -231,6 +266,7 @@ def create_app(config, tracker, session=None):
           <div>
             <div class='card'><b>Fit {esc(fit.get('score'))}/100</b>
               {"" if fit.get('had_description', True) else "<span class='pill warn'>title only</span>"}
+              {fit_compare(r['fit_score'], report)}
               <p>{esc(fit.get('summary'))}</p>
               <b>Strengths</b><ul>{"".join(f"<li>{esc(s)}</li>" for s in fit.get('matching_strengths', []))}</ul>
               <b>Gaps</b><ul>{"".join(f"<li>{esc(g)}</li>" for g in fit.get('gaps', []))}</ul></div>
