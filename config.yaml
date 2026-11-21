@@ -61,6 +61,33 @@ search:
     - statistics
     - GIS
 
+  it_keywords:
+    - IT
+    - information technology
+    - IT support
+    - IT operations
+    - IT infrastructure
+    - infrastructure
+    - cloud
+    - network
+    - networking
+    - systems administrator
+    - system administrator
+    - sysadmin
+    - help desk
+    - service desk
+    - technical support
+    - desktop support
+    - end user
+    - enterprise technology
+    - enterprise systems
+    - ServiceNow
+    - cybersecurity
+    - information security
+    - security operations
+    - identity and access
+    - IAM
+    - Microsoft 365
   exclude_keywords:
     - software engineer
     - software engineering

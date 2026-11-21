@@ -119,3 +119,19 @@ def test_refilter_skips_found_jobs_that_no_longer_pass(tmp_path):
     assert t.get(keep)["status"] == "found"
     assert t.get(drop)["status"] == "skipped"
     t.close()
+
+
+def test_it_engineer_titles_pass_but_other_engineering_does_not():
+    search = {"include_keywords": ["analyst"], "it_keywords": ["cloud", "network", "IT support"],
+              "exclude_keywords": ["engineer", "engineering", "software engineer", "electrical"]}
+    f = JobFilter(search, "Summer 2027")
+
+    def check(title):
+        return f.reason_to_drop(Job("X", title, "https://x", "Richmond, VA", "test"))
+
+    assert check("Cloud Engineer Intern") is None
+    assert check("IT Support Intern") is None
+    assert check("Network Engineering Intern") is None
+    assert check("Software Engineer Intern") == "excluded keyword"
+    assert check("Electrical Engineering Intern") == "excluded keyword"
+    assert check("Mechanical Engineer Intern") == "excluded keyword"

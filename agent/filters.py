@@ -86,6 +86,10 @@ class JobFilter:
     def __init__(self, search_config, term, today=None):
         self.include = _keyword_pattern(search_config["include_keywords"])
         self.exclude = _keyword_pattern(search_config["exclude_keywords"])
+        self.it_override = _keyword_pattern(search_config.get("it_keywords") or ["\0"])
+        hard = [k for k in search_config["exclude_keywords"]
+                if k.strip().lower() not in ("engineer", "engineering")]
+        self.hard_exclude = _keyword_pattern(hard or ["\0"]).search
         self.us_only = search_config.get("us_only", True)
         self.max_age = search_config.get("max_posting_age_days")
         self.only_verified = search_config.get("only_verified_sites", False)
@@ -95,9 +99,10 @@ class JobFilter:
     def reason_to_drop(self, job):
         if not is_internship(job.title):
             return "not an internship"
-        if self.exclude.search(job.title):
+        it_role = bool(self.it_override.search(job.title))
+        if self.exclude.search(job.title) and not (it_role and not self.hard_exclude(job.title)):
             return "excluded keyword"
-        if not self.include.search(job.title):
+        if not it_role and not self.include.search(job.title):
             return "not a target role"
         if not is_right_term(job.title, self.term):
             return "different term"

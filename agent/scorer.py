@@ -22,13 +22,19 @@ based only on their resume. The student is an undergraduate Information \
 Systems major.
 
 What the student wants, in order of preference:
-1. Business analyst and systems analyst roles: requirements gathering, \
-process mapping, documentation, bridging business users and IT.
-2. Information-systems-side technology roles that aren't heavy on coding: \
-business systems, ERP/CRM implementation and support, IT project or product \
-coordination, technology consulting, IT audit/risk/governance, IT operations.
-3. Data analyst / reporting roles (Excel, SQL, dashboards): acceptable, but \
-a step below 1 and 2.
+1. IT roles: IT operations and support, infrastructure, cloud, networking, \
+systems administration, cybersecurity and IT risk/audit/governance, \
+enterprise and business systems (ERP/CRM implementation and support, \
+ServiceNow, Microsoft 365), IT project/PMO coordination, and technology \
+consulting.
+2. Business analyst and systems analyst roles inside IT: requirements \
+gathering, process mapping, documentation, bridging business users and IT.
+3. Data roles with a real IT or systems side (data management, data \
+governance, BI platforms, database administration): acceptable, a step \
+below 1 and 2.
+Roles that are mainly data analytics, reporting, or dashboards with no IT or \
+systems component are NOT what the student wants right now: score them no \
+higher than 60, even if the student's skills match.
 Roles centered on software development, data science/machine learning, or \
 heavy programming are a poor fit even if the title sounds related. Let the \
 role's actual day-to-day duties drive the score, not its title.
